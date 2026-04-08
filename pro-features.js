@@ -13,13 +13,13 @@
     try { return JSON.parse(localStorage.getItem("runwell-user")); } catch { return null; }
   }
 
-  function isProUser() {
+  function isPaidUser() {
     const user = getUser();
-    return user && user.plan === "pro";
+    return user && (user.plan === "advanced" || user.plan === "pro" || user.plan === "coach");
   }
 
   function requirePro(callback) {
-    if (isProUser()) {
+    if (isPaidUser()) {
       callback();
     } else {
       document.getElementById("pro-gate-modal").style.display = "flex";
@@ -195,7 +195,13 @@
 
   function initNutrition() {
     document.getElementById("btn-nutrition").addEventListener("click", () => {
-      requirePro(() => openModal("nutrition-modal"));
+      requirePro(() => {
+        // Reset state on open
+        document.getElementById("nutri-results").style.display = "none";
+        document.getElementById("nutrition-calculate").style.display = "";
+        document.getElementById("nutrition-apply").style.display = "none";
+        openModal("nutrition-modal");
+      });
     });
 
     setupModalClose("nutrition-modal", "nutrition-close");
@@ -231,9 +237,13 @@
     const totalTimeSec = paceSeconds * courseDist;
     const totalTimeHr = totalTimeSec / 3600;
 
-    // Recommended: 30-60g carbs/hr for <2.5hr, 60-90g for >2.5hr
-    const targetCarbPerHr = totalTimeHr > 2.5 ? 75 : 50;
-    const targetCalPerHr = targetCarbPerHr * 4; // ~4 cal per gram carb
+    // Check for custom targets, otherwise auto-recommend
+    const customCal = parseFloat(document.getElementById("nutri-custom-cal").value);
+    const customCarb = parseFloat(document.getElementById("nutri-custom-carb").value);
+    const autoCarbPerHr = totalTimeHr > 2.5 ? 75 : 50;
+    const autoCalPerHr = autoCarbPerHr * 4;
+    const targetCarbPerHr = customCarb > 0 ? customCarb : autoCarbPerHr;
+    const targetCalPerHr = customCal > 0 ? customCal : autoCalPerHr;
 
     // Fueling every ~30-45 min (roughly every 3-5 miles depending on pace)
     const fuelIntervalMin = 30;
@@ -285,10 +295,21 @@
   }
 
   function applyNutrition() {
-    if (lastNutritionPlan.length === 0) return;
+    if (lastNutritionPlan.length === 0) { alert("No nutrition plan to apply. Calculate first."); return; }
 
-    // Add nutrition markers via the global addCustomMarker if available
-    if (window._runwellAddMarker) {
+    if (!window._runwellAddMarker) {
+      alert("Course not loaded yet. Please wait for the map to finish loading.");
+      return;
+    }
+
+    // Close modal first so the markers render correctly
+    closeModal("nutrition-modal");
+    document.getElementById("nutrition-calculate").style.display = "";
+    document.getElementById("nutrition-apply").style.display = "none";
+    document.getElementById("nutri-results").style.display = "none";
+
+    // Use setTimeout to let the modal close before adding markers
+    setTimeout(() => {
       lastNutritionPlan.forEach((item) => {
         window._runwellAddMarker({
           mile: item.mile,
@@ -300,13 +321,7 @@
         });
       });
       alert(`Added ${lastNutritionPlan.length} nutrition markers to your race plan.`);
-    }
-
-    closeModal("nutrition-modal");
-
-    // Reset for next time
-    document.getElementById("nutrition-calculate").style.display = "";
-    document.getElementById("nutrition-apply").style.display = "none";
+    }, 100);
   }
 
   // ─── Weather Adjustments ──────────────────────────────────────
@@ -511,10 +526,112 @@
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
   }
 
+  // ─── Coach: Athlete Management ─────────────────────────────────
+
+  let athletes = [];
+  let activeAthlete = "__default__";
+
+  function isCoach() {
+    const user = getUser();
+    return user && user.plan === "coach";
+  }
+
+  function getAthletesKey() {
+    const user = getUser();
+    return user ? `runwell-athletes-${user.email}` : "runwell-athletes";
+  }
+
+  function loadAthletes() {
+    try { athletes = JSON.parse(localStorage.getItem(getAthletesKey()) || "[]"); } catch { athletes = []; }
+  }
+
+  function saveAthletes() {
+    localStorage.setItem(getAthletesKey(), JSON.stringify(athletes));
+  }
+
+  function initCoachFeatures() {
+    const selector = document.getElementById("athlete-selector");
+    const select = document.getElementById("athlete-select");
+    const addBtn = document.getElementById("athlete-add-btn");
+    const modal = document.getElementById("athlete-modal");
+
+    if (!selector || !select || !modal) return;
+
+    // Show selector only for coaches
+    if (!isCoach()) { selector.style.display = "none"; return; }
+    selector.style.display = "";
+
+    loadAthletes();
+    renderAthleteSelect();
+
+    // Switch athlete
+    select.addEventListener("change", () => {
+      activeAthlete = select.value;
+      // Swap localStorage keys by setting a prefix
+      window._runwellAthletePrefix = activeAthlete === "__default__" ? "" : `athlete-${activeAthlete}-`;
+      // Reload the page with the athlete context
+      // For simplicity, we store active athlete and reload markers/pace
+      localStorage.setItem("runwell-active-athlete", activeAthlete);
+      window.location.reload();
+    });
+
+    // Add athlete button
+    addBtn.addEventListener("click", () => {
+      document.getElementById("athlete-name").value = "";
+      document.getElementById("athlete-goal").value = "";
+      document.getElementById("athlete-weight").value = "";
+      document.getElementById("athlete-notes").value = "";
+      modal.style.display = "flex";
+    });
+
+    document.getElementById("athlete-cancel").addEventListener("click", () => { modal.style.display = "none"; });
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+
+    document.getElementById("athlete-save").addEventListener("click", () => {
+      const name = document.getElementById("athlete-name").value.trim();
+      if (!name) { alert("Please enter a name."); return; }
+
+      const id = name.toLowerCase().replace(/[^a-z0-9]/g, "-") + "-" + Date.now();
+      athletes.push({
+        id,
+        name,
+        goal: document.getElementById("athlete-goal").value.trim(),
+        weight: document.getElementById("athlete-weight").value,
+        weightUnit: document.getElementById("athlete-weight-unit").value,
+        notes: document.getElementById("athlete-notes").value.trim(),
+        createdAt: new Date().toISOString(),
+      });
+
+      saveAthletes();
+      renderAthleteSelect();
+      modal.style.display = "none";
+
+      // Switch to new athlete
+      select.value = id;
+      select.dispatchEvent(new Event("change"));
+    });
+
+    // Restore active athlete
+    const saved = localStorage.getItem("runwell-active-athlete");
+    if (saved && (saved === "__default__" || athletes.find((a) => a.id === saved))) {
+      activeAthlete = saved;
+      select.value = saved;
+      window._runwellAthletePrefix = saved === "__default__" ? "" : `athlete-${saved}-`;
+    }
+  }
+
+  function renderAthleteSelect() {
+    const select = document.getElementById("athlete-select");
+    if (!select) return;
+    select.innerHTML = `<option value="__default__">My Plan</option>` +
+      athletes.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
+  }
+
   // ─── Init ─────────────────────────────────────────────────────
 
   function init() {
     initProGate();
+    initCoachFeatures();
     initRaceHistory();
     initNutrition();
     initWeather();

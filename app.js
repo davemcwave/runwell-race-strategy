@@ -17,16 +17,24 @@
   let pacePlan = {
     goalTime: null,       // total seconds
     strategy: "even",
+    startApproach: "even-start",
     splits: [],           // [{ mile, pace, effort, cumTime }]
   };
 
-  // Effort zone colors
-  const EFFORT_COLORS = {
-    easy: "#34d399",
-    moderate: "#41ae9f",
-    hard: "#fb923c",
-    sprint: "#f87171",
-  };
+  // Effort 0-10 color scale (green → yellow → orange → red)
+  function effortColor(e) {
+    const n = parseInt(e) || 0;
+    if (n <= 3) return "#41ae9f";   // easy: teal
+    if (n <= 5) return "#F5F35C";   // moderate: yellow
+    if (n <= 7) return "#fb923c";   // hard: orange
+    return "#ef4444";               // max effort: red
+  }
+
+  function effortLabel(e) {
+    const n = parseInt(e) || 0;
+    if (n === 0) return "";
+    return `${n}/10`;
+  }
 
   // ─── GPX Parsing ──────────────────────────────────────────────
 
@@ -71,7 +79,13 @@
       displayRoute = route.filter((_, i) => i % step === 0 || i === route.length - 1);
     }
 
-    return { name, distance: Math.round(totalDist * 100) / 100, route: displayRoute, routeFull: route, elevation };
+    // Build cumulative distance array for accurate mile position lookups
+    const cumDist = [0];
+    for (let i = 1; i < route.length; i++) {
+      cumDist.push(cumDist[i - 1] + haversine(route[i - 1][0], route[i - 1][1], route[i][0], route[i][1]));
+    }
+
+    return { name, distance: Math.round(totalDist * 100) / 100, route: displayRoute, routeFull: route, elevation, cumDist };
   }
 
   function haversine(lat1, lon1, lat2, lon2) {
@@ -86,12 +100,26 @@
 
   function getMilePosition(mile) {
     const pts = course.routeFull || course.route;
-    const fraction = Math.max(0, Math.min(1, mile / course.distance));
-    const index = fraction * (pts.length - 1);
-    const lower = Math.floor(index);
-    const upper = Math.min(lower + 1, pts.length - 1);
-    const t = index - lower;
-    return [pts[lower][0] + t * (pts[upper][0] - pts[lower][0]), pts[lower][1] + t * (pts[upper][1] - pts[lower][1])];
+    const cd = course.cumDist;
+    if (!cd || cd.length !== pts.length) {
+      // Fallback: linear interpolation
+      const fraction = Math.max(0, Math.min(1, mile / course.distance));
+      const index = fraction * (pts.length - 1);
+      const lower = Math.floor(index);
+      const upper = Math.min(lower + 1, pts.length - 1);
+      const t = index - lower;
+      return [pts[lower][0] + t * (pts[upper][0] - pts[lower][0]), pts[lower][1] + t * (pts[upper][1] - pts[lower][1])];
+    }
+    // Binary search for the segment that contains this mile
+    const targetDist = Math.max(0, Math.min(course.distance, mile));
+    let lo = 0, hi = cd.length - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (cd[mid] <= targetDist) lo = mid; else hi = mid;
+    }
+    const segLen = cd[hi] - cd[lo];
+    const t = segLen > 0 ? (targetDist - cd[lo]) / segLen : 0;
+    return [pts[lo][0] + t * (pts[hi][0] - pts[lo][0]), pts[lo][1] + t * (pts[hi][1] - pts[lo][1])];
   }
 
   function getElevationAtMile(mile) {
@@ -116,11 +144,10 @@
 
   function initMap() {
     map = L.map("map", { zoomControl: true, attributionControl: false });
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", { maxZoom: 19, subdomains: "abcd" }).addTo(map);
-    document.querySelector(".leaflet-tile-pane").style.filter = "none";
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", { maxZoom: 19, subdomains: "abcd" }).addTo(map);
 
-    routeLine = L.polyline(course.route, { color: "#41ae9f", weight: 5, opacity: 0.85, smoothFactor: 1.5 }).addTo(map);
-    L.polyline(course.route, { color: "#41ae9f", weight: 12, opacity: 0.15, smoothFactor: 1.5 }).addTo(map);
+    routeLine = L.polyline(course.route, { color: "#334264", weight: 5, opacity: 0.85, smoothFactor: 1.5 }).addTo(map);
+    L.polyline(course.route, { color: "#334264", weight: 12, opacity: 0.15, smoothFactor: 1.5 }).addTo(map);
     map.fitBounds(routeLine.getBounds().pad(0.05));
 
     addHTMLMarker(course.route[0], '<div class="start-marker">Start</div>');
@@ -144,13 +171,17 @@
   }
 
   function latlngToMile(latlng) {
+    // Search against the full route for accuracy
+    const pts = course.routeFull || course.route;
+    const cd = course.cumDist;
     let minDist = Infinity, closestIdx = 0;
-    const pts = course.route;
     for (let i = 0; i < pts.length; i++) {
       const d = (latlng.lat - pts[i][0]) ** 2 + (latlng.lng - pts[i][1]) ** 2;
       if (d < minDist) { minDist = d; closestIdx = i; }
     }
     if (Math.sqrt(minDist) > 0.015) return null;
+    // Use cumDist for accurate mile
+    if (cd && cd.length === pts.length) return cd[closestIdx];
     return (closestIdx / (pts.length - 1)) * course.distance;
   }
 
@@ -196,7 +227,7 @@
     const currentMile = Math.floor(mile) + 1;
     const split = pacePlan.splits.find((s) => s.mile === Math.min(currentMile, Math.ceil(course.distance)));
     const paceText = split && split.pace ? split.pace : "—";
-    const effortText = split && split.effort ? split.effort : "";
+    const effortVal = split ? split.effort : 0;
 
     // Next custom marker
     const sorted = [...customMarkers].sort((a, b) => a.mile - b.mile);
@@ -206,7 +237,7 @@
     document.getElementById("runner-details").innerHTML = `
       <div class="detail-row"><span>Elevation</span><span class="detail-value">${Math.round(elev)} ft</span></div>
       <div class="detail-row"><span>Grade</span><span class="detail-value">${gradeLabel}</span></div>
-      <div class="detail-row"><span>Target Pace</span><span class="detail-value">${paceText}${effortText ? ` <span class="effort-badge ${effortText}" style="margin-left:4px;">${effortText}</span>` : ""}</span></div>
+      <div class="detail-row"><span>Target Pace</span><span class="detail-value">${paceText}${effortVal ? ` <span style="margin-left:4px;color:${effortColor(effortVal)};font-size:11px;">${effortVal}/10</span>` : ""}</span></div>
       <div class="detail-row"><span>Remaining</span><span class="detail-value">${remaining} mi</span></div>
       <div class="detail-row"><span>Next Note</span><span class="detail-value" style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nextNoteText}</span></div>
     `;
@@ -246,7 +277,7 @@
           const x1 = xScale.getPixelForValue(idxStart);
           const x2 = xScale.getPixelForValue(idxEnd);
           ctx.save();
-          ctx.fillStyle = (EFFORT_COLORS[split.effort] || "#41ae9f") + "18"; // very transparent
+          ctx.fillStyle = effortColor(split.effort) + "18"; // very transparent
           ctx.fillRect(x1, yScale.top, x2 - x1, yScale.bottom - yScale.top);
           ctx.restore();
         });
@@ -287,7 +318,7 @@
       type: "line",
       data: {
         labels,
-        datasets: [{ data, borderColor: "#41ae9f", backgroundColor: createGradient(ctx), fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: "#41ae9f", tension: 0.3 }],
+        datasets: [{ data, borderColor: "#334264", backgroundColor: createGradient(ctx), fill: true, borderWidth: 2, pointRadius: 0, pointHoverRadius: 5, pointHoverBackgroundColor: "#334264", tension: 0.3 }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -295,9 +326,9 @@
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: "#1a3539", borderColor: "#264045", borderWidth: 1,
+            backgroundColor: "#ffffff", borderColor: "#e2e5e9", borderWidth: 1,
             titleFont: { family: "Inter", size: 12, weight: "600" }, bodyFont: { family: "Inter", size: 11 },
-            titleColor: "#e8eaed", bodyColor: "#8b8fa3", padding: 10, cornerRadius: 6,
+            titleColor: "#1a1a2e", bodyColor: "#6b7280", padding: 10, cornerRadius: 6,
             callbacks: {
               title: (items) => `Mile ${items[0].label}`,
               label: (item) => {
@@ -313,14 +344,14 @@
         },
         scales: {
           x: {
-            title: { display: true, text: "Miles", color: "#8b8fa3", font: { family: "Inter", size: 11 } },
-            grid: { color: "rgba(46, 51, 68, 0.5)" },
-            ticks: { color: "#8b8fa3", font: { family: "Inter", size: 10 }, callback: (val, idx) => { const m = labels[idx]; const step = course.distance > 20 ? 5 : 2; return m % step === 0 ? m : ""; }, maxTicksLimit: 20 },
+            title: { display: true, text: "Miles", color: "#6b7280", font: { family: "Inter", size: 11 } },
+            grid: { color: "rgba(0, 0, 0, 0.06)" },
+            ticks: { color: "#6b7280", font: { family: "Inter", size: 10 }, callback: (val, idx) => { const m = labels[idx]; const step = course.distance > 20 ? 5 : 2; return m % step === 0 ? m : ""; }, maxTicksLimit: 20 },
           },
           y: {
-            title: { display: true, text: "Elevation (ft)", color: "#8b8fa3", font: { family: "Inter", size: 11 } },
-            grid: { color: "rgba(46, 51, 68, 0.5)" },
-            ticks: { color: "#8b8fa3", font: { family: "Inter", size: 10 } }, min: 0,
+            title: { display: true, text: "Elevation (ft)", color: "#6b7280", font: { family: "Inter", size: 11 } },
+            grid: { color: "rgba(0, 0, 0, 0.06)" },
+            ticks: { color: "#6b7280", font: { family: "Inter", size: 10 } }, min: 0,
           },
         },
         onClick: (evt) => {
@@ -339,7 +370,7 @@
 
   function createGradient(ctx) {
     const g = ctx.createLinearGradient(0, 0, 0, 200);
-    g.addColorStop(0, "rgba(65, 174, 159, 0.25)"); g.addColorStop(1, "rgba(65, 174, 159, 0.02)");
+    g.addColorStop(0, "rgba(51, 66, 100, 0.2)"); g.addColorStop(1, "rgba(51, 66, 100, 0.02)");
     return g;
   }
 
@@ -369,10 +400,11 @@
     return `${m}:${String(sec).padStart(2, "0")}`;
   }
 
-  function generateSplits(goalSeconds, strategy) {
+  function generateSplits(goalSeconds, strategy, startApproach) {
     const totalMiles = Math.ceil(course.distance);
     const lastMileFraction = course.distance - Math.floor(course.distance);
     const avgPace = goalSeconds / course.distance; // seconds per mile
+    const halfDist = course.distance / 2;
 
     const splits = [];
     let cumTime = 0;
@@ -380,29 +412,49 @@
     for (let m = 1; m <= totalMiles; m++) {
       const isLast = m === totalMiles;
       const mileLength = isLast && lastMileFraction > 0.01 ? lastMileFraction : 1;
-      let pace = avgPace;
-      const halfDist = course.distance / 2;
 
+      // 1) Always apply elevation adjustment
+      const elevChange = getElevChangeForMile(m);
+      const elevAdj = (elevChange / 50) * 5; // ~5s per 50ft gain, recover on downhill
+
+      // 2) Apply strategy modifier (split approach for first vs second half)
+      let strategyAdj = 0;
       if (strategy === "negative") {
-        // Slower first half, faster second half
-        pace = m <= halfDist ? avgPace + 5 : avgPace - 5;
+        strategyAdj = m <= halfDist ? 5 : -5;
+      } else if (strategy === "aggressive-negative") {
+        strategyAdj = m <= halfDist ? 10 : -10;
       } else if (strategy === "positive") {
-        // Faster first half, slower second half
-        pace = m <= halfDist ? avgPace - 5 : avgPace + 5;
-      } else if (strategy === "elevation") {
-        // Adjust based on elevation change
-        const elevChange = getElevChangeForMile(m);
-        // ~6s per 50ft of gain, ~3s per 50ft of loss
-        const adjustment = (elevChange / 50) * 6;
-        pace = avgPace + adjustment;
+        strategyAdj = m <= halfDist ? -5 : 5;
+      } else if (strategy === "aggressive-positive") {
+        strategyAdj = m <= halfDist ? -10 : 10;
       }
+      // "even" = 0
 
-      // Auto-assign effort based on pace vs average
-      let effort = "";
-      if (pace < avgPace - 8) effort = "sprint";
-      else if (pace < avgPace - 3) effort = "hard";
-      else if (pace > avgPace + 5) effort = "easy";
-      else effort = "moderate";
+      // 3) Apply start approach modifier (first 3-5 miles)
+      let startAdj = 0;
+      if (startApproach === "conservative") {
+        if (m <= 3) startAdj = 8;
+        else if (m <= 5) startAdj = 4;
+      } else if (startApproach === "very-conservative") {
+        if (m <= 3) startAdj = 15;
+        else if (m <= 6) startAdj = 8;
+        else if (m <= 8) startAdj = 3;
+      }
+      // "even-start" = 0
+
+      let pace = avgPace + elevAdj + strategyAdj + startAdj;
+      // Don't let pace go below 60% of avg (safety floor)
+      pace = Math.max(pace, avgPace * 0.6);
+
+      // Auto-assign effort 0-10 based on pace vs average
+      let effort = 5; // default moderate
+      const pctDiff = ((pace - avgPace) / avgPace) * 100;
+      if (pctDiff < -3) effort = 8;
+      else if (pctDiff < -1.5) effort = 7;
+      else if (pctDiff < 0) effort = 6;
+      else if (pctDiff < 1.5) effort = 5;
+      else if (pctDiff < 3) effort = 4;
+      else effort = 3;
 
       const splitTime = pace * mileLength;
       cumTime += splitTime;
@@ -424,22 +476,16 @@
   function initPacePlanner() {
     const paceModal = document.getElementById("pace-modal-overlay");
 
-    document.getElementById("btn-pace-planner").addEventListener("click", () => {
+    function prefillModal() {
       if (pacePlan.goalTime) {
         document.getElementById("goal-time").value = secondsToTime(pacePlan.goalTime);
         document.getElementById("pace-strategy").value = pacePlan.strategy;
+        document.getElementById("start-approach").value = pacePlan.startApproach || "even-start";
       }
-      paceModal.style.display = "flex";
-    });
+    }
 
-    document.getElementById("btn-edit-pace").addEventListener("click", () => {
-      if (pacePlan.goalTime) {
-        document.getElementById("goal-time").value = secondsToTime(pacePlan.goalTime);
-        document.getElementById("pace-strategy").value = pacePlan.strategy;
-      }
-      paceModal.style.display = "flex";
-    });
-
+    document.getElementById("btn-pace-planner").addEventListener("click", () => { prefillModal(); paceModal.style.display = "flex"; });
+    document.getElementById("btn-edit-pace").addEventListener("click", () => { prefillModal(); paceModal.style.display = "flex"; });
     document.getElementById("pace-cancel").addEventListener("click", () => { paceModal.style.display = "none"; });
     paceModal.addEventListener("click", (e) => { if (e.target === paceModal) paceModal.style.display = "none"; });
 
@@ -448,17 +494,19 @@
       if (!goalSeconds || goalSeconds < 60) { alert("Please enter a valid goal time (e.g. 3:30:00)"); return; }
 
       const strategy = document.getElementById("pace-strategy").value;
+      const startApproach = document.getElementById("start-approach").value;
+      const startTimeEl = document.getElementById("race-start-time");
       pacePlan.goalTime = goalSeconds;
       pacePlan.strategy = strategy;
-      pacePlan.splits = generateSplits(goalSeconds, strategy);
+      pacePlan.startApproach = startApproach;
+      pacePlan.startTime = startTimeEl ? startTimeEl.value : null;
+      pacePlan.splits = generateSplits(goalSeconds, strategy, startApproach);
 
       savePacePlan();
       renderSplitsTable();
       updatePaceSummary();
       if (elevationChart) elevationChart.update("none");
       updateRunnerInfo(runnerMile);
-
-      // Switch to splits tab
       switchTab("splits");
       paceModal.style.display = "none";
     });
@@ -468,19 +516,34 @@
     const el = document.getElementById("pace-summary");
     if (!pacePlan.goalTime) { el.style.display = "none"; return; }
     el.style.display = "block";
+    const stratLabel = { even: "Even", negative: "Negative", "aggressive-negative": "Agg. Negative", positive: "Positive", "aggressive-positive": "Agg. Positive" }[pacePlan.strategy] || pacePlan.strategy;
+    const startLabel = { "even-start": "Even Start", conservative: "Conservative Start", "very-conservative": "Very Conservative" }[pacePlan.startApproach] || "";
     document.getElementById("pace-goal-label").textContent =
-      `Goal: ${secondsToTime(pacePlan.goalTime)} · ${pacePlan.strategy} splits · Avg ${secondsToPace(pacePlan.goalTime / course.distance)}/mi`;
+      `Goal: ${secondsToTime(pacePlan.goalTime)} · ${stratLabel}${startLabel ? " · " + startLabel : ""} · Avg ${secondsToPace(pacePlan.goalTime / course.distance)}/mi · Elev-Adjusted`;
   }
 
   // ─── Splits Table ─────────────────────────────────────────────
 
   function renderSplitsTable() {
     const tbody = document.getElementById("splits-table-body");
+    const isAdvanced = (() => { try { const u = JSON.parse(localStorage.getItem("runwell-user")); return u && (u.plan === "advanced" || u.plan === "pro" || u.plan === "coach"); } catch { return false; } })();
+    const hasStartTime = pacePlan.startTime && isAdvanced;
+
+    // Show/hide time-of-day column
+    document.querySelectorAll(".tod-col").forEach((el) => { el.style.display = hasStartTime ? "" : "none"; });
+
     if (pacePlan.splits.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px;font-size:13px;">
+      tbody.innerHTML = `<tr><td colspan="${hasStartTime ? 6 : 5}" style="text-align:center;color:var(--text-muted);padding:24px;font-size:13px;">
         No pace plan yet. Click <strong>Pace Planner</strong> to generate splits.
       </td></tr>`;
       return;
+    }
+
+    // Parse start time for time-of-day calculation
+    let startSeconds = 0;
+    if (hasStartTime) {
+      const parts = pacePlan.startTime.split(":").map(Number);
+      startSeconds = (parts[0] || 0) * 3600 + (parts[1] || 0) * 60;
     }
 
     tbody.innerHTML = pacePlan.splits.map((s, i) => {
@@ -488,6 +551,17 @@
       const elevIcon = elevChange > 20 ? "↑" : elevChange < -20 ? "↓" : "—";
       const elevColor = elevChange > 20 ? "var(--accent-red)" : elevChange < -20 ? "var(--accent-green)" : "var(--text-muted)";
       const mileLabel = s.mileLength < 1 ? `${s.mile - 1}→${course.distance.toFixed(1)}` : s.mile;
+
+      // Time of day
+      let todCell = "";
+      if (hasStartTime) {
+        const todSec = startSeconds + s.cumTime;
+        const todH = Math.floor(todSec / 3600) % 24;
+        const todM = Math.floor((todSec % 3600) / 60);
+        const ampm = todH >= 12 ? "PM" : "AM";
+        const h12 = todH % 12 || 12;
+        todCell = `<td class="tod-col" style="color:var(--navy);font-size:11px;font-weight:600;">${h12}:${String(todM).padStart(2, "0")} ${ampm}</td>`;
+      }
 
       return `<tr data-mile="${s.mile}" class="${Math.floor(runnerMile) + 1 === s.mile ? 'active-row' : ''}">
         <td>${mileLabel}</td>
@@ -498,15 +572,10 @@
           </div>
         </td>
         <td>
-          <select class="effort-select" data-idx="${i}" style="background:transparent;border:none;color:${EFFORT_COLORS[s.effort] || 'var(--text-muted)'};font-size:11px;font-family:inherit;cursor:pointer;outline:none;">
-            <option value="" ${!s.effort ? "selected" : ""}>—</option>
-            <option value="easy" ${s.effort === "easy" ? "selected" : ""} style="color:#34d399">Easy</option>
-            <option value="moderate" ${s.effort === "moderate" ? "selected" : ""} style="color:#41ae9f">Moderate</option>
-            <option value="hard" ${s.effort === "hard" ? "selected" : ""} style="color:#fb923c">Hard</option>
-            <option value="sprint" ${s.effort === "sprint" ? "selected" : ""} style="color:#f87171">Sprint</option>
-          </select>
+          <input type="number" class="effort-input" data-idx="${i}" min="0" max="10" value="${s.effort || 5}" style="width:40px;background:transparent;border:1px solid var(--border);color:${effortColor(s.effort)};font-size:12px;font-family:inherit;text-align:center;border-radius:4px;padding:2px;outline:none;" />
         </td>
         <td style="color:var(--text-muted);font-size:11px;">${secondsToTime(s.cumTime)}</td>
+        ${todCell}
       </tr>`;
     }).join("");
 
@@ -528,11 +597,12 @@
       });
     });
 
-    // Effort edit handlers
-    tbody.querySelectorAll(".effort-select").forEach((sel) => {
-      sel.addEventListener("change", (e) => {
+    // Effort edit handlers (0-10)
+    tbody.querySelectorAll(".effort-input").forEach((input) => {
+      input.addEventListener("change", (e) => {
         const idx = parseInt(e.target.dataset.idx);
-        pacePlan.splits[idx].effort = e.target.value;
+        const val = Math.max(0, Math.min(10, parseInt(e.target.value) || 0));
+        pacePlan.splits[idx].effort = val;
         savePacePlan();
         renderSplitsTable();
         if (elevationChart) elevationChart.update("none");
@@ -608,7 +678,7 @@
       <div class="split-item" data-mile="${item.mile}" data-type="${item.type}">
         <div class="split-icon ${item.type}">${item.icon}</div>
         <div class="split-info">
-          <div class="split-label">${item.label}${item.effort ? ` <span class="effort-badge ${item.effort}">${item.effort}</span>` : ""}</div>
+          <div class="split-label">${item.label}${item.effort ? ` <span style="background:${effortColor(item.effort)}22;color:${effortColor(item.effort)};padding:1px 6px;border-radius:10px;font-size:10px;font-weight:700;">${item.effort}/10</span>` : ""}</div>
           <div class="split-meta">
             Mile ${item.mile.toFixed(1)} · ${Math.round(getElevationAtMile(item.mile))} ft
             ${item.pace ? ` · ${item.pace}/mi` : ""}
@@ -636,6 +706,97 @@
     });
 
     highlightActiveSplit(runnerMile);
+    renderReviews();
+  }
+
+  // ─── Reviews (free feature) ───────────────────────────────────
+
+  let reviews = [];
+
+  function getReviewsKey() { return `runwell-reviews-${getRaceId()}`; } // Reviews are shared, not per-athlete
+
+  function loadReviews() {
+    try { reviews = JSON.parse(localStorage.getItem(getReviewsKey()) || "[]"); } catch { reviews = []; }
+  }
+
+  function saveReviews() {
+    localStorage.setItem(getReviewsKey(), JSON.stringify(reviews));
+  }
+
+  function renderReviews() {
+    const list = document.getElementById("splits-list");
+    // Remove old reviews section if exists
+    const oldSection = list.querySelector(".reviews-section");
+    if (oldSection) oldSection.remove();
+
+    const section = document.createElement("div");
+    section.className = "reviews-section";
+
+    section.innerHTML = `
+      <div class="reviews-header">
+        <h4>Course Reviews</h4>
+        <span class="review-count">${reviews.length} review${reviews.length !== 1 ? "s" : ""}</span>
+      </div>
+      <div class="review-input-row">
+        <div class="star-rating" id="star-rating">
+          <span data-val="1">&#9733;</span>
+          <span data-val="2">&#9733;</span>
+          <span data-val="3">&#9733;</span>
+          <span data-val="4">&#9733;</span>
+          <span data-val="5">&#9733;</span>
+        </div>
+        <input class="review-input" id="review-input" placeholder="Share your thoughts on this course..." />
+        <button class="review-submit" id="review-submit">Post</button>
+      </div>
+      <div class="review-list" id="review-list">
+        ${reviews.length === 0
+          ? '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">No reviews yet. Be the first!</div>'
+          : reviews.slice().reverse().map((r) => `
+            <div class="review-item">
+              <div class="review-item-header">
+                <span class="review-author">${r.author}</span>
+                <span class="review-date">${r.date}</span>
+                <span class="review-stars">${"★".repeat(r.stars)}${"☆".repeat(5 - r.stars)}</span>
+              </div>
+              <div class="review-text">${r.text}</div>
+            </div>
+          `).join("")
+        }
+      </div>
+    `;
+
+    list.appendChild(section);
+
+    // Star rating interaction
+    let selectedStars = 0;
+    const starEls = section.querySelectorAll("#star-rating span");
+    starEls.forEach((star) => {
+      star.addEventListener("mouseenter", () => {
+        const val = parseInt(star.dataset.val);
+        starEls.forEach((s) => s.classList.toggle("active", parseInt(s.dataset.val) <= val));
+      });
+      star.addEventListener("click", () => {
+        selectedStars = parseInt(star.dataset.val);
+      });
+    });
+    section.querySelector("#star-rating").addEventListener("mouseleave", () => {
+      starEls.forEach((s) => s.classList.toggle("active", parseInt(s.dataset.val) <= selectedStars));
+    });
+
+    // Submit review
+    section.querySelector("#review-submit").addEventListener("click", () => {
+      const text = section.querySelector("#review-input").value.trim();
+      if (!text) return;
+      const user = (() => { try { return JSON.parse(localStorage.getItem("runwell-user")); } catch { return null; } })();
+      reviews.push({
+        author: user ? user.name : "Anonymous",
+        date: new Date().toLocaleDateString(),
+        stars: selectedStars || 5,
+        text,
+      });
+      saveReviews();
+      renderSplitsList(); // re-render with new review
+    });
   }
 
   function highlightActiveSplit(mile) {
@@ -673,8 +834,9 @@
     return new URLSearchParams(window.location.search).get("race") || "default";
   }
 
-  function getStorageKey() { return `runwell-markers-${getRaceId()}`; }
-  function getPaceStorageKey() { return `runwell-pace-${getRaceId()}`; }
+  function getAthletePrefix() { return window._runwellAthletePrefix || ""; }
+  function getStorageKey() { return `runwell-${getAthletePrefix()}markers-${getRaceId()}`; }
+  function getPaceStorageKey() { return `runwell-${getAthletePrefix()}pace-${getRaceId()}`; }
 
   function saveCustomMarkers() {
     const data = customMarkers.map(({ mile, type, label, pace, effort, notes }) => ({ mile, type, label, pace, effort, notes }));
@@ -831,6 +993,7 @@
     initTabs();
     initModals();
     initPacePlanner();
+    loadReviews();
     loadCustomMarkers();
     loadPacePlan();
     renderSplitsList();

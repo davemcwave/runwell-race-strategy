@@ -12,14 +12,17 @@
 <body>
   <header>
     <div style="display:flex;align-items:center;gap:16px;">
-      <a class="logo" href="index.html" style="text-decoration:none;color:var(--primary);">
-        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-          <circle cx="14" cy="14" r="13" stroke="currentColor" stroke-width="2"/>
-          <path d="M9 18 L12 10 L15 15 L18 8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span>Runwell</span>
+      <a class="logo" href="index.html" style="text-decoration:none;">
+        <img src="assets/logo.png" alt="Runwell" style="height:36px;" />
       </a>
       <span id="race-title" style="font-size:14px;color:var(--text-muted);font-weight:500;"></span>
+      <!-- Coach: athlete selector -->
+      <div id="athlete-selector" style="display:none;margin-left:8px;">
+        <select id="athlete-select" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:20px;font-size:12px;font-family:inherit;outline:none;cursor:pointer;">
+          <option value="__default__">My Plan</option>
+        </select>
+        <button id="athlete-add-btn" style="background:var(--primary);color:#fff;border:none;padding:5px 10px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;margin-left:4px;">+ Athlete</button>
+      </div>
     </div>
     <nav>
       <a href="index.html" class="btn-secondary" style="text-decoration:none;">&#8592; Change Race</a>
@@ -101,6 +104,7 @@
                   <th>Pace</th>
                   <th>Effort</th>
                   <th>Cumul.</th>
+                  <th class="tod-col" style="display:none;">Clock</th>
                 </tr>
               </thead>
               <tbody id="splits-table-body"></tbody>
@@ -134,14 +138,8 @@
         <label>Target Pace (optional)
           <input type="text" id="modal-pace" placeholder="e.g. 7:30 /mi" />
         </label>
-        <label id="modal-effort-label">Effort Level
-          <select id="modal-effort">
-            <option value="">— Not set —</option>
-            <option value="easy">Easy</option>
-            <option value="moderate">Moderate</option>
-            <option value="hard">Hard</option>
-            <option value="sprint">Sprint / Kick</option>
-          </select>
+        <label id="modal-effort-label">Effort Level (0-10)
+          <input type="number" id="modal-effort" min="0" max="10" step="1" placeholder="e.g. 5" />
         </label>
         <label>Notes (optional)
           <textarea id="modal-notes" rows="2" placeholder="Additional details..."></textarea>
@@ -162,16 +160,27 @@
         <label>Goal Finish Time
           <input type="text" id="goal-time" placeholder="e.g. 3:30:00 or 3:30" />
         </label>
-        <label>Strategy
+        <label>Race Strategy
           <select id="pace-strategy">
-            <option value="even">Even Splits</option>
-            <option value="negative">Negative Split (-5s/mi second half)</option>
-            <option value="positive">Positive Split (+5s/mi second half)</option>
-            <option value="elevation">Elevation Adjusted (slow uphill, fast downhill)</option>
+            <option value="even">Even Pacing</option>
+            <option value="negative">Negative Split</option>
+            <option value="aggressive-negative">Aggressive Negative Split</option>
+            <option value="positive">Positive Split</option>
+            <option value="aggressive-positive">Aggressive Positive Split</option>
           </select>
         </label>
+        <label>Start Approach
+          <select id="start-approach">
+            <option value="even-start">Evenly Paced Start</option>
+            <option value="conservative">Conservative Start</option>
+            <option value="very-conservative">Very Conservative Start</option>
+          </select>
+        </label>
+        <label>Race Start Time <span style="font-weight:400;color:var(--text-muted);">(Advanced — for time-of-day estimates)</span>
+          <input type="time" id="race-start-time" value="09:00" />
+        </label>
         <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">
-          This generates target paces per mile based on the course elevation profile and your chosen strategy. You can edit individual splits after generating.
+          All splits are automatically adjusted for the course elevation profile. Your strategy and start approach are layered on top. You can edit individual splits after generating.
         </p>
       </div>
       <div class="modal-actions">
@@ -186,7 +195,7 @@
     <div class="modal" style="width:600px;max-height:85vh;display:flex;flex-direction:column;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <h3>📊 Race History</h3>
-        <span class="pro-badge-inline">PRO</span>
+        <span class="pro-badge-inline">ADV</span>
       </div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
         Import past race data to inform your pacing strategy. Your recent performances help generate smarter split targets.
@@ -288,7 +297,7 @@
     <div class="modal" style="width:560px;max-height:85vh;display:flex;flex-direction:column;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <h3>🍊 Nutrition Calculator</h3>
-        <span class="pro-badge-inline">PRO</span>
+        <span class="pro-badge-inline">ADV</span>
       </div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
         Calculate your fueling plan based on your weight, pace, and preferred race nutrition products.
@@ -350,6 +359,18 @@
             <option value="banana">Banana (105 cal, 27g carb)</option>
           </select>
         </label>
+
+        <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px;">
+          <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">TARGETS (auto-recommended, or customize)</div>
+          <div class="history-form-row">
+            <label>Calories/hr
+              <input type="number" id="nutri-custom-cal" placeholder="Auto" style="flex:1;" />
+            </label>
+            <label>Carbs g/hr
+              <input type="number" id="nutri-custom-carb" placeholder="Auto" style="flex:1;" />
+            </label>
+          </div>
+        </div>
       </div>
 
       <!-- Results -->
@@ -397,7 +418,7 @@
     <div class="modal" style="width:520px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <h3>🌦️ Weather Adjustments</h3>
-        <span class="pro-badge-inline">PRO</span>
+        <span class="pro-badge-inline">ADV</span>
       </div>
       <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
         Enter expected race-day conditions to calculate pace adjustments. Heat, humidity, wind, and rain all impact marathon performance.
@@ -496,15 +517,46 @@
     </div>
   </div>
 
+  <!-- Coach: Add Athlete modal -->
+  <div id="athlete-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:380px;">
+      <h3>Add Athlete</h3>
+      <div class="modal-body">
+        <label>Athlete Name
+          <input type="text" id="athlete-name" placeholder="e.g. Sarah Johnson" />
+        </label>
+        <label>Goal Race Time (optional)
+          <input type="text" id="athlete-goal" placeholder="e.g. 3:45:00" />
+        </label>
+        <label>Weight (optional)
+          <div style="display:flex;gap:6px;">
+            <input type="number" id="athlete-weight" placeholder="150" style="flex:1;" />
+            <select id="athlete-weight-unit" style="width:60px;">
+              <option value="lbs">lbs</option>
+              <option value="kg">kg</option>
+            </select>
+          </div>
+        </label>
+        <label>Notes
+          <textarea id="athlete-notes" rows="2" placeholder="Injury history, preferences..."></textarea>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="athlete-cancel">Cancel</button>
+        <button class="btn-primary" id="athlete-save">Add Athlete</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Pro gate modal -->
   <div id="pro-gate-modal" class="modal-overlay" style="display:none;">
     <div class="modal" style="text-align:center;padding:40px;">
       <div style="font-size:40px;margin-bottom:12px;">🔒</div>
-      <h3 style="margin-bottom:8px;">Pro Feature</h3>
-      <p style="font-size:14px;color:var(--text-muted);margin-bottom:24px;">This feature requires a Runwell Pro subscription. Upgrade to unlock race history imports, nutrition planning, and weather-based pace adjustments.</p>
+      <h3 style="margin-bottom:8px;">Advanced Feature</h3>
+      <p style="font-size:14px;color:var(--text-muted);margin-bottom:24px;">This feature requires a Runwell Advanced or Coach subscription. Upgrade to unlock race history imports, nutrition planning, weather adjustments, and more.</p>
       <div class="modal-actions" style="flex-direction:row;justify-content:center;">
         <button class="btn-secondary" id="pro-gate-close">Maybe Later</button>
-        <a href="index.html" class="btn-primary" style="text-decoration:none;text-align:center;padding:11px 24px;border-radius:var(--radius-sm);font-size:14px;font-weight:600;">Upgrade to Pro</a>
+        <a href="index.html" class="btn-primary" style="text-decoration:none;text-align:center;padding:11px 24px;border-radius:var(--radius-pill);font-size:14px;font-weight:600;">Upgrade Plan</a>
       </div>
     </div>
   </div>
