@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(start index.html)",
+      "Bash(npx -y http-server -p 8080 -c-1 --silent)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8080/index.html)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"http://localhost:8080/gpx/boston-gpx_20250421_id10253_race1_20250406001335.gpx\")",
+      "Bash(start http://localhost:8080)",
+      "WebFetch(domain:www.runwellclinic.com)"
+    ]
+  }
+}

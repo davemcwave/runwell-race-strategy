@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Runwell Interactive Race Strategy</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <header>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <a class="logo" href="index.html" style="text-decoration:none;color:var(--primary);">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="13" stroke="currentColor" stroke-width="2"/>
+          <path d="M9 18 L12 10 L15 15 L18 8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Runwell</span>
+      </a>
+      <span id="race-title" style="font-size:14px;color:var(--text-muted);font-weight:500;"></span>
+    </div>
+    <nav>
+      <a href="index.html" class="btn-secondary" style="text-decoration:none;">&#8592; Change Race</a>
+      <button class="btn-secondary" id="btn-pace-planner">Pace Planner</button>
+      <button class="btn-secondary btn-pro" id="btn-race-history">📊 Race History</button>
+      <button class="btn-secondary btn-pro" id="btn-nutrition">🍊 Nutrition</button>
+      <button class="btn-secondary btn-pro" id="btn-weather">🌦️ Weather</button>
+      <button class="btn-primary" id="btn-export">Export Plan</button>
+    </nav>
+  </header>
+
+  <!-- Loading state -->
+  <div id="loading" style="display:flex;align-items:center;justify-content:center;height:calc(100vh - 52px);flex-direction:column;gap:12px;">
+    <div style="font-size:36px;">🏃</div>
+    <div style="color:var(--text-muted);font-size:14px;">Loading course data...</div>
+  </div>
+
+  <main style="display:none;" id="main-content">
+    <div id="map-container">
+      <div id="map"></div>
+      <div id="runner-info" class="overlay-card" style="display:none;">
+        <div class="runner-info-header">
+          <span class="runner-info-icon">&#127939;</span>
+          <span id="runner-mile">Mile 0.0</span>
+        </div>
+        <div id="runner-details"></div>
+      </div>
+    </div>
+
+    <div class="resize-handle-h" id="resize-h"></div>
+    <div id="bottom-panel">
+      <div id="elevation-panel">
+        <div class="panel-header">
+          <h3>Elevation Profile</h3>
+          <div class="elevation-stats">
+            <span id="stat-gain">&#9650; 0 ft gain</span>
+            <span id="stat-loss">&#9660; 0 ft loss</span>
+            <span id="stat-max">Max: 0 ft</span>
+          </div>
+        </div>
+        <div id="elevation-chart-wrapper">
+          <canvas id="elevation-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="resize-handle-v" id="resize-v"></div>
+
+      <div id="splits-panel">
+        <div class="panel-header">
+          <h3>Race Plan</h3>
+          <div class="panel-header-actions">
+            <button class="btn-icon" id="btn-add-marker" title="Add custom marker">+ Add Note</button>
+          </div>
+        </div>
+
+        <!-- Tabs for switching between notes and splits -->
+        <div class="tab-bar">
+          <button class="tab active" data-tab="notes">Notes</button>
+          <button class="tab" data-tab="splits">Splits</button>
+        </div>
+
+        <div id="tab-notes" class="tab-content active">
+          <div id="splits-list"></div>
+        </div>
+
+        <div id="tab-splits" class="tab-content" style="display:none;">
+          <div id="pace-summary" class="pace-summary" style="display:none;">
+            <div class="pace-summary-header">
+              <span id="pace-goal-label">No goal set</span>
+              <button class="btn-icon" id="btn-edit-pace" style="font-size:11px;">Edit</button>
+            </div>
+          </div>
+          <div id="splits-table-wrapper">
+            <table id="splits-table">
+              <thead>
+                <tr>
+                  <th>Mile</th>
+                  <th>Elev</th>
+                  <th>Pace</th>
+                  <th>Effort</th>
+                  <th>Cumul.</th>
+                </tr>
+              </thead>
+              <tbody id="splits-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal for adding custom markers -->
+  <div id="modal-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <h3 id="modal-title">Add Race Note</h3>
+      <div class="modal-body">
+        <label>Mile
+          <input type="number" id="modal-mile" min="0" max="26.2" step="0.1" value="0" />
+        </label>
+        <label>Type
+          <select id="modal-type">
+            <option value="nutrition">Nutrition / Gel</option>
+            <option value="water">Water Stop</option>
+            <option value="pace">Pace Change</option>
+            <option value="effort">Effort Zone</option>
+            <option value="note">Note</option>
+          </select>
+        </label>
+        <label>Label
+          <input type="text" id="modal-label" placeholder="e.g. Take gel #1" />
+        </label>
+        <label>Target Pace (optional)
+          <input type="text" id="modal-pace" placeholder="e.g. 7:30 /mi" />
+        </label>
+        <label id="modal-effort-label">Effort Level
+          <select id="modal-effort">
+            <option value="">— Not set —</option>
+            <option value="easy">Easy</option>
+            <option value="moderate">Moderate</option>
+            <option value="hard">Hard</option>
+            <option value="sprint">Sprint / Kick</option>
+          </select>
+        </label>
+        <label>Notes (optional)
+          <textarea id="modal-notes" rows="2" placeholder="Additional details..."></textarea>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="modal-cancel">Cancel</button>
+        <button class="btn-primary" id="modal-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pace Planner modal -->
+  <div id="pace-modal-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:420px;">
+      <h3>Pace Planner</h3>
+      <div class="modal-body">
+        <label>Goal Finish Time
+          <input type="text" id="goal-time" placeholder="e.g. 3:30:00 or 3:30" />
+        </label>
+        <label>Strategy
+          <select id="pace-strategy">
+            <option value="even">Even Splits</option>
+            <option value="negative">Negative Split (-5s/mi second half)</option>
+            <option value="positive">Positive Split (+5s/mi second half)</option>
+            <option value="elevation">Elevation Adjusted (slow uphill, fast downhill)</option>
+          </select>
+        </label>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+          This generates target paces per mile based on the course elevation profile and your chosen strategy. You can edit individual splits after generating.
+        </p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="pace-cancel">Cancel</button>
+        <button class="btn-primary" id="pace-generate">Generate Splits</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PRO: Race History ═══ -->
+  <div id="history-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:600px;max-height:85vh;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <h3>📊 Race History</h3>
+        <span class="pro-badge-inline">PRO</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+        Import past race data to inform your pacing strategy. Your recent performances help generate smarter split targets.
+      </p>
+
+      <!-- Connect services -->
+      <div class="connect-services">
+        <button class="connect-btn strava" id="connect-strava">
+          <span class="connect-icon">🟠</span>
+          <span>Connect Strava</span>
+          <span class="connect-status">Not connected</span>
+        </button>
+        <button class="connect-btn garmin" id="connect-garmin">
+          <span class="connect-icon">🔵</span>
+          <span>Connect Garmin</span>
+          <span class="connect-status">Not connected</span>
+        </button>
+        <button class="connect-btn coros" id="connect-coros">
+          <span class="connect-icon">⚪</span>
+          <span>Connect COROS</span>
+          <span class="connect-status">Not connected</span>
+        </button>
+      </div>
+
+      <div class="divider-line" style="border-top:1px solid var(--border);margin:16px 0;"></div>
+
+      <!-- Manual entry -->
+      <h4 style="font-size:13px;font-weight:600;margin-bottom:10px;">Manual Entry</h4>
+      <div class="history-form">
+        <div class="history-form-row">
+          <label>Race Name
+            <input type="text" id="history-name" placeholder="e.g. NYC Marathon 2024" />
+          </label>
+          <label>Date
+            <input type="date" id="history-date" />
+          </label>
+        </div>
+        <div class="history-form-row">
+          <label>Distance
+            <select id="history-distance">
+              <option value="26.2">Marathon (26.2 mi)</option>
+              <option value="13.1">Half Marathon (13.1 mi)</option>
+              <option value="6.2">10K (6.2 mi)</option>
+              <option value="3.1">5K (3.1 mi)</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label>Finish Time
+            <input type="text" id="history-time" placeholder="e.g. 3:45:00" />
+          </label>
+        </div>
+        <div class="history-form-row">
+          <label>Conditions (optional)
+            <select id="history-conditions">
+              <option value="">— Select —</option>
+              <option value="ideal">Ideal (45-55°F, dry)</option>
+              <option value="warm">Warm (65-75°F)</option>
+              <option value="hot">Hot (75°F+)</option>
+              <option value="cold">Cold (&lt;40°F)</option>
+              <option value="rain">Rain</option>
+              <option value="wind">Windy</option>
+            </select>
+          </label>
+          <label>Avg HR (optional)
+            <input type="number" id="history-hr" placeholder="e.g. 155" />
+          </label>
+        </div>
+        <button class="btn-primary" id="history-add" style="align-self:flex-start;margin-top:4px;">+ Add Race</button>
+      </div>
+
+      <!-- Past races table -->
+      <div style="flex:1;overflow-y:auto;margin-top:16px;">
+        <table class="history-table" id="history-table">
+          <thead>
+            <tr>
+              <th>Race</th>
+              <th>Date</th>
+              <th>Dist</th>
+              <th>Time</th>
+              <th>Pace</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="history-table-body">
+            <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px;">No races added yet. Connect a service or add manually above.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="modal-actions" style="flex-shrink:0;">
+        <button class="btn-secondary" id="history-close">Close</button>
+        <button class="btn-primary" id="history-apply">Apply to Pace Plan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PRO: Nutrition Calculator ═══ -->
+  <div id="nutrition-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:560px;max-height:85vh;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <h3>🍊 Nutrition Calculator</h3>
+        <span class="pro-badge-inline">PRO</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+        Calculate your fueling plan based on your weight, pace, and preferred race nutrition products.
+      </p>
+
+      <div class="modal-body" style="gap:12px;">
+        <div class="history-form-row">
+          <label>Body Weight
+            <div style="display:flex;gap:6px;">
+              <input type="number" id="nutri-weight" placeholder="150" style="flex:1;" />
+              <select id="nutri-weight-unit" style="width:60px;">
+                <option value="lbs">lbs</option>
+                <option value="kg">kg</option>
+              </select>
+            </div>
+          </label>
+          <label>Target Pace
+            <input type="text" id="nutri-pace" placeholder="e.g. 8:00 /mi" />
+          </label>
+        </div>
+
+        <label>Primary Race Fuel
+          <select id="nutri-fuel-brand">
+            <option value="">— Select Brand —</option>
+            <optgroup label="Gels">
+              <option value="gu-energy">GU Energy Gel (100 cal, 22g carb)</option>
+              <option value="gu-roctane">GU Roctane (100 cal, 21g carb)</option>
+              <option value="maurten-100">Maurten Gel 100 (100 cal, 25g carb)</option>
+              <option value="maurten-160">Maurten Gel 160 (160 cal, 40g carb)</option>
+              <option value="sis-go">SiS GO Isotonic Gel (87 cal, 22g carb)</option>
+              <option value="clif-shot">Clif Shot Energy Gel (100 cal, 24g carb)</option>
+              <option value="huma-plus">Huma Gel Plus (100 cal, 22g carb)</option>
+              <option value="spring-energy">Spring Energy Awesome Sauce (180 cal, 33g carb)</option>
+              <option value="precision-30">Precision Fuel PF 30 Gel (100 cal, 30g carb)</option>
+              <option value="honey-stinger">Honey Stinger Gel (100 cal, 24g carb)</option>
+            </optgroup>
+            <optgroup label="Chews / Solids">
+              <option value="clif-bloks">Clif Bloks per 3 (100 cal, 24g carb)</option>
+              <option value="gu-chews">GU Chews per 4 (80 cal, 20g carb)</option>
+              <option value="maurten-chew">Maurten Drink Mix 160 (160 cal, 40g carb)</option>
+              <option value="gatorade-chews">Gatorade Endurance Chews per 4 (100 cal, 23g carb)</option>
+            </optgroup>
+            <optgroup label="Drink Mix (per serving)">
+              <option value="maurten-320">Maurten Drink Mix 320 (320 cal, 79g carb)</option>
+              <option value="tailwind">Tailwind Endurance Fuel (100 cal, 25g carb)</option>
+              <option value="skratch">Skratch Labs Mix (80 cal, 21g carb)</option>
+              <option value="gatorade-endurance">Gatorade Endurance (120 cal, 30g carb)</option>
+            </optgroup>
+          </select>
+        </label>
+
+        <label>Secondary Fuel (optional)
+          <select id="nutri-fuel-secondary">
+            <option value="">— None —</option>
+            <option value="gu-energy">GU Energy Gel (100 cal, 22g carb)</option>
+            <option value="maurten-100">Maurten Gel 100 (100 cal, 25g carb)</option>
+            <option value="clif-bloks">Clif Bloks per 3 (100 cal, 24g carb)</option>
+            <option value="tailwind">Tailwind (100 cal, 25g carb)</option>
+            <option value="banana">Banana (105 cal, 27g carb)</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Results -->
+      <div id="nutri-results" style="display:none;margin-top:16px;flex:1;overflow-y:auto;">
+        <div class="nutri-summary-cards">
+          <div class="nutri-card">
+            <div class="nutri-card-label">Target Intake</div>
+            <div class="nutri-card-value" id="nutri-target-cal">— cal/hr</div>
+          </div>
+          <div class="nutri-card">
+            <div class="nutri-card-label">Target Carbs</div>
+            <div class="nutri-card-value" id="nutri-target-carb">— g/hr</div>
+          </div>
+          <div class="nutri-card">
+            <div class="nutri-card-label">Total Race Fuel</div>
+            <div class="nutri-card-value" id="nutri-total-fuel">— servings</div>
+          </div>
+        </div>
+
+        <h4 style="font-size:13px;font-weight:600;margin:14px 0 8px;">Fueling Schedule</h4>
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Mile</th>
+              <th>Time</th>
+              <th>Product</th>
+              <th>Calories</th>
+              <th>Carbs</th>
+            </tr>
+          </thead>
+          <tbody id="nutri-schedule-body"></tbody>
+        </table>
+      </div>
+
+      <div class="modal-actions" style="flex-shrink:0;">
+        <button class="btn-secondary" id="nutrition-close">Close</button>
+        <button class="btn-primary" id="nutrition-calculate">Calculate Plan</button>
+        <button class="btn-primary" id="nutrition-apply" style="display:none;">Add to Race Notes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ PRO: Weather Adjustments ═══ -->
+  <div id="weather-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:520px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <h3>🌦️ Weather Adjustments</h3>
+        <span class="pro-badge-inline">PRO</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+        Enter expected race-day conditions to calculate pace adjustments. Heat, humidity, wind, and rain all impact marathon performance.
+      </p>
+
+      <div class="modal-body" style="gap:12px;">
+        <div class="history-form-row">
+          <label>Temperature
+            <div style="display:flex;gap:6px;">
+              <input type="number" id="weather-temp" placeholder="55" style="flex:1;" />
+              <select id="weather-temp-unit" style="width:55px;">
+                <option value="F">°F</option>
+                <option value="C">°C</option>
+              </select>
+            </div>
+          </label>
+          <label>Humidity
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="weather-humidity" placeholder="50" min="0" max="100" style="flex:1;" />
+              <span style="color:var(--text-muted);font-size:13px;">%</span>
+            </div>
+          </label>
+        </div>
+        <div class="history-form-row">
+          <label>Wind Speed
+            <div style="display:flex;gap:6px;">
+              <input type="number" id="weather-wind" placeholder="8" style="flex:1;" />
+              <select id="weather-wind-unit" style="width:60px;">
+                <option value="mph">mph</option>
+                <option value="kph">kph</option>
+              </select>
+            </div>
+          </label>
+          <label>Conditions
+            <select id="weather-conditions">
+              <option value="clear">Clear / Sunny</option>
+              <option value="cloudy">Overcast</option>
+              <option value="drizzle">Light Rain / Drizzle</option>
+              <option value="rain">Heavy Rain</option>
+              <option value="snow">Snow / Sleet</option>
+            </select>
+          </label>
+        </div>
+        <label>Race Start Time
+          <input type="time" id="weather-start-time" value="09:00" />
+        </label>
+      </div>
+
+      <!-- Weather impact results -->
+      <div id="weather-results" style="display:none;margin-top:16px;">
+        <div class="weather-impact-cards">
+          <div class="weather-card" id="weather-card-temp">
+            <div class="weather-card-icon">🌡️</div>
+            <div class="weather-card-info">
+              <div class="weather-card-label">Temperature Impact</div>
+              <div class="weather-card-value" id="weather-temp-impact">—</div>
+            </div>
+          </div>
+          <div class="weather-card" id="weather-card-humidity">
+            <div class="weather-card-icon">💧</div>
+            <div class="weather-card-info">
+              <div class="weather-card-label">Humidity Impact</div>
+              <div class="weather-card-value" id="weather-humidity-impact">—</div>
+            </div>
+          </div>
+          <div class="weather-card" id="weather-card-wind">
+            <div class="weather-card-icon">💨</div>
+            <div class="weather-card-info">
+              <div class="weather-card-label">Wind Impact</div>
+              <div class="weather-card-value" id="weather-wind-impact">—</div>
+            </div>
+          </div>
+          <div class="weather-card" id="weather-card-rain">
+            <div class="weather-card-icon">🌧️</div>
+            <div class="weather-card-info">
+              <div class="weather-card-label">Conditions Impact</div>
+              <div class="weather-card-value" id="weather-rain-impact">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="weather-summary" id="weather-summary">
+          <div class="weather-summary-total">
+            <span>Total Pace Adjustment</span>
+            <strong id="weather-total-adj">+0:00 /mi</strong>
+          </div>
+          <div class="weather-summary-note" id="weather-note"></div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-secondary" id="weather-close">Close</button>
+        <button class="btn-primary" id="weather-calculate">Calculate Impact</button>
+        <button class="btn-primary" id="weather-apply" style="display:none;">Apply to Splits</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pro gate modal -->
+  <div id="pro-gate-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="text-align:center;padding:40px;">
+      <div style="font-size:40px;margin-bottom:12px;">🔒</div>
+      <h3 style="margin-bottom:8px;">Pro Feature</h3>
+      <p style="font-size:14px;color:var(--text-muted);margin-bottom:24px;">This feature requires a Runwell Pro subscription. Upgrade to unlock race history imports, nutrition planning, and weather-based pace adjustments.</p>
+      <div class="modal-actions" style="flex-direction:row;justify-content:center;">
+        <button class="btn-secondary" id="pro-gate-close">Maybe Later</button>
+        <a href="index.html" class="btn-primary" style="text-decoration:none;text-align:center;padding:11px 24px;border-radius:var(--radius-sm);font-size:14px;font-weight:600;">Upgrade to Pro</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="races.js"></script>
+  <script src="app.js"></script>
+  <script src="resize.js"></script>
+  <script src="pro-features.js"></script>
+</body>
+</html>
