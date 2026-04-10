@@ -1,6 +1,6 @@
 /**
  * RunWell - Marathon Race Strategy Planner
- * Main application logic — loads GPX data dynamically
+ * Main application logic - loads GPX data dynamically
  */
 
 (function () {
@@ -12,6 +12,8 @@
   let runnerMile = 0;
   let customMarkers = [];
   let mapMarkers = {};
+  let fuelMiles = new Set();
+  let fuelMapMarkers = {};
 
   // Pace plan state: per-mile data
   let pacePlan = {
@@ -21,12 +23,21 @@
     splits: [],           // [{ mile, pace, effort, cumTime }]
   };
 
-  // Effort 0-10 color scale (green → yellow → orange → red)
+  // Coach: Goal A/B support
+  let activeGoal = "A";
+  let pacePlanB = {
+    goalTime: null,
+    strategy: "even",
+    startApproach: "even-start",
+    splits: [],
+  };
+
+  // Effort 0-10 color scale (green → amber → orange → red)
   function effortColor(e) {
     const n = parseInt(e) || 0;
     if (n <= 3) return "#41ae9f";   // easy: teal
-    if (n <= 5) return "#F5F35C";   // moderate: yellow
-    if (n <= 7) return "#fb923c";   // hard: orange
+    if (n <= 5) return "#d97706";   // moderate: amber
+    if (n <= 7) return "#ea580c";   // hard: deep orange
     return "#ef4444";               // max effort: red
   }
 
@@ -195,7 +206,7 @@
     if (runnerMarker) {
       runnerMarker.setLatLng(pos);
     } else {
-      const icon = L.divIcon({ html: '<div class="runner-marker">🏃</div>', className: "", iconSize: [32, 32], iconAnchor: [16, 16] });
+      const icon = L.divIcon({ html: '<div class="runner-marker"><svg width="32" height="32" viewBox="0 0 24 24" fill="#F5F35C" stroke="#334264" stroke-width="0.5"><path d="M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7"/></svg></div>', className: "", iconSize: [40, 40], iconAnchor: [20, 20] });
       runnerMarker = L.marker(pos, { icon, draggable: true, zIndexOffset: 1000 }).addTo(map);
       runnerMarker.on("drag", (e) => {
         const m = latlngToMile(e.latlng);
@@ -226,13 +237,13 @@
     // Current split pace if set
     const currentMile = Math.floor(mile) + 1;
     const split = pacePlan.splits.find((s) => s.mile === Math.min(currentMile, Math.ceil(course.distance)));
-    const paceText = split && split.pace ? split.pace : "—";
+    const paceText = split && split.pace ? split.pace : "-";
     const effortVal = split ? split.effort : 0;
 
     // Next custom marker
     const sorted = [...customMarkers].sort((a, b) => a.mile - b.mile);
     const nextNote = sorted.find((cm) => cm.mile > mile);
-    const nextNoteText = nextNote ? `${nextNote.label} (${(nextNote.mile - mile).toFixed(1)} mi)` : "—";
+    const nextNoteText = nextNote ? `${nextNote.label} (${(nextNote.mile - mile).toFixed(1)} mi)` : "-";
 
     document.getElementById("runner-details").innerHTML = `
       <div class="detail-row"><span>Elevation</span><span class="detail-value">${Math.round(elev)} ft</span></div>
@@ -400,7 +411,7 @@
     return `${m}:${String(sec).padStart(2, "0")}`;
   }
 
-  function generateSplits(goalSeconds, strategy, startApproach) {
+  function generateSplits(goalSeconds, strategy, startApproach, elevAdjusted) {
     const totalMiles = Math.ceil(course.distance);
     const lastMileFraction = course.distance - Math.floor(course.distance);
     const avgPace = goalSeconds / course.distance; // seconds per mile
@@ -413,9 +424,9 @@
       const isLast = m === totalMiles;
       const mileLength = isLast && lastMileFraction > 0.01 ? lastMileFraction : 1;
 
-      // 1) Always apply elevation adjustment
+      // 1) Elevation adjustment (optional)
       const elevChange = getElevChangeForMile(m);
-      const elevAdj = (elevChange / 50) * 5; // ~5s per 50ft gain, recover on downhill
+      const elevAdj = elevAdjusted !== false ? (elevChange / 50) * 5 : 0; // ~5s per 50ft gain
 
       // 2) Apply strategy modifier (split approach for first vs second half)
       let strategyAdj = 0;
@@ -447,14 +458,17 @@
       pace = Math.max(pace, avgPace * 0.6);
 
       // Auto-assign effort 0-10 based on pace vs average
-      let effort = 5; // default moderate
+      // 5/10 = average pace needed to hit goal time
+      let effort = 5;
       const pctDiff = ((pace - avgPace) / avgPace) * 100;
-      if (pctDiff < -3) effort = 8;
+      if (pctDiff < -4) effort = 9;
+      else if (pctDiff < -2.5) effort = 8;
       else if (pctDiff < -1.5) effort = 7;
-      else if (pctDiff < 0) effort = 6;
-      else if (pctDiff < 1.5) effort = 5;
-      else if (pctDiff < 3) effort = 4;
-      else effort = 3;
+      else if (pctDiff < -0.5) effort = 6;
+      else if (pctDiff <= 0.5) effort = 5;  // average pace = 5/10
+      else if (pctDiff < 1.5) effort = 4;
+      else if (pctDiff < 2.5) effort = 3;
+      else effort = 2;
 
       const splitTime = pace * mileLength;
       cumTime += splitTime;
@@ -481,6 +495,7 @@
         document.getElementById("goal-time").value = secondsToTime(pacePlan.goalTime);
         document.getElementById("pace-strategy").value = pacePlan.strategy;
         document.getElementById("start-approach").value = pacePlan.startApproach || "even-start";
+        document.getElementById("elev-adjust").checked = pacePlan.elevAdjusted !== false;
       }
     }
 
@@ -495,12 +510,14 @@
 
       const strategy = document.getElementById("pace-strategy").value;
       const startApproach = document.getElementById("start-approach").value;
+      const elevAdjusted = document.getElementById("elev-adjust").checked;
       const startTimeEl = document.getElementById("race-start-time");
       pacePlan.goalTime = goalSeconds;
       pacePlan.strategy = strategy;
       pacePlan.startApproach = startApproach;
+      pacePlan.elevAdjusted = elevAdjusted;
       pacePlan.startTime = startTimeEl ? startTimeEl.value : null;
-      pacePlan.splits = generateSplits(goalSeconds, strategy, startApproach);
+      pacePlan.splits = generateSplits(goalSeconds, strategy, startApproach, elevAdjusted);
 
       savePacePlan();
       renderSplitsTable();
@@ -518,8 +535,9 @@
     el.style.display = "block";
     const stratLabel = { even: "Even", negative: "Negative", "aggressive-negative": "Agg. Negative", positive: "Positive", "aggressive-positive": "Agg. Positive" }[pacePlan.strategy] || pacePlan.strategy;
     const startLabel = { "even-start": "Even Start", conservative: "Conservative Start", "very-conservative": "Very Conservative" }[pacePlan.startApproach] || "";
+    const elevLabel = pacePlan.elevAdjusted !== false ? "Elev-Adjusted" : "Flat Pacing";
     document.getElementById("pace-goal-label").textContent =
-      `Goal: ${secondsToTime(pacePlan.goalTime)} · ${stratLabel}${startLabel ? " · " + startLabel : ""} · Avg ${secondsToPace(pacePlan.goalTime / course.distance)}/mi · Elev-Adjusted`;
+      `Goal: ${secondsToTime(pacePlan.goalTime)} · ${stratLabel}${startLabel ? " · " + startLabel : ""} · Avg ${secondsToPace(pacePlan.goalTime / course.distance)}/mi · ${elevLabel}`;
   }
 
   // ─── Splits Table ─────────────────────────────────────────────
@@ -527,15 +545,66 @@
   function renderSplitsTable() {
     const tbody = document.getElementById("splits-table-body");
     const isAdvanced = (() => { try { const u = JSON.parse(localStorage.getItem("runwell-user")); return u && (u.plan === "advanced" || u.plan === "pro" || u.plan === "coach"); } catch { return false; } })();
+    const isCoachPlan = (() => { try { const u = JSON.parse(localStorage.getItem("runwell-user")); return u && u.plan === "coach"; } catch { return false; } })();
     const hasStartTime = pacePlan.startTime && isAdvanced;
 
     // Show/hide time-of-day column
     document.querySelectorAll(".tod-col").forEach((el) => { el.style.display = hasStartTime ? "" : "none"; });
+    // Show/hide effort column (Coach only)
+    document.querySelectorAll(".effort-col").forEach((el) => { el.classList.toggle("show", isCoachPlan); });
 
     if (pacePlan.splits.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="${hasStartTime ? 6 : 5}" style="text-align:center;color:var(--text-muted);padding:24px;font-size:13px;">
-        No pace plan yet. Click <strong>Pace Planner</strong> to generate splits.
+      const colCount = 5 + (isCoachPlan ? 1 : 0) + (hasStartTime ? 1 : 0);
+      tbody.innerHTML = `<tr><td colspan="${colCount}" style="padding:16px;">
+        <div style="max-width:320px;margin:0 auto;">
+          <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px;text-align:center;">Set Your Race Plan</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;">Goal Finish Time
+              <input type="text" id="inline-goal-time" placeholder="e.g. 3:30:00" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-pill);font-size:14px;font-family:inherit;outline:none;text-align:center;" />
+            </label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;">Race Strategy
+              <select id="inline-strategy" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-pill);font-size:13px;font-family:inherit;outline:none;">
+                <option value="even">Even Pacing</option>
+                <option value="negative">Negative Split</option>
+                <option value="aggressive-negative">Aggressive Negative Split</option>
+                <option value="positive">Positive Split</option>
+                <option value="aggressive-positive">Aggressive Positive Split</option>
+              </select>
+            </label>
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;">Start Approach
+              <select id="inline-start-approach" style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-pill);font-size:13px;font-family:inherit;outline:none;">
+                <option value="even-start">Evenly Paced Start</option>
+                <option value="conservative">Conservative Start</option>
+                <option value="very-conservative">Very Conservative Start</option>
+              </select>
+            </label>
+            <button id="inline-generate" style="padding:10px;background:var(--primary);color:#fff;border:none;border-radius:var(--radius-pill);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;">Generate Splits</button>
+          </div>
+        </div>
       </td></tr>`;
+
+      // Wire up the inline generate button
+      const inlineBtn = document.getElementById("inline-generate");
+      if (inlineBtn) {
+        inlineBtn.addEventListener("click", () => {
+          const goalSeconds = parseTimeToSeconds(document.getElementById("inline-goal-time").value);
+          if (!goalSeconds || goalSeconds < 60) { alert("Please enter a valid goal time (e.g. 3:30:00)"); return; }
+          const strategy = document.getElementById("inline-strategy").value;
+          const startApproach = document.getElementById("inline-start-approach").value;
+          pacePlan.goalTime = goalSeconds;
+          pacePlan.strategy = strategy;
+          pacePlan.startApproach = startApproach;
+          pacePlan.elevAdjusted = true;
+          pacePlan.startTime = "08:00";
+          pacePlan.splits = generateSplits(goalSeconds, strategy, startApproach, true);
+          savePacePlan();
+          renderSplitsTable();
+          updatePaceSummary();
+          if (elevationChart) elevationChart.update("none");
+          updateRunnerInfo(runnerMile);
+          switchTab("splits");
+        });
+      }
       return;
     }
 
@@ -548,7 +617,7 @@
 
     tbody.innerHTML = pacePlan.splits.map((s, i) => {
       const elevChange = getElevChangeForMile(s.mile);
-      const elevIcon = elevChange > 20 ? "↑" : elevChange < -20 ? "↓" : "—";
+      const elevIcon = elevChange > 20 ? "↑" : elevChange < -20 ? "↓" : "-";
       const elevColor = elevChange > 20 ? "var(--accent-red)" : elevChange < -20 ? "var(--accent-green)" : "var(--text-muted)";
       const mileLabel = s.mileLength < 1 ? `${s.mile - 1}→${course.distance.toFixed(1)}` : s.mile;
 
@@ -565,17 +634,20 @@
 
       return `<tr data-mile="${s.mile}" class="${Math.floor(runnerMile) + 1 === s.mile ? 'active-row' : ''}">
         <td>${mileLabel}</td>
-        <td style="color:${elevColor}">${elevIcon} ${Math.abs(Math.round(elevChange))}′</td>
-        <td>
+        <td class="col-elev" style="color:${elevColor}">${elevIcon} ${Math.abs(Math.round(elevChange))}′</td>
+        <td class="col-pace">
           <div class="pace-cell">
             <input type="text" value="${s.pace}" data-idx="${i}" class="split-pace-input" />
           </div>
         </td>
-        <td>
-          <input type="number" class="effort-input" data-idx="${i}" min="0" max="10" value="${s.effort || 5}" style="width:40px;background:transparent;border:1px solid var(--border);color:${effortColor(s.effort)};font-size:12px;font-family:inherit;text-align:center;border-radius:4px;padding:2px;outline:none;" />
+        <td class="effort-col col-effort${isCoachPlan ? ' show' : ''}" style="text-align:center;">
+          <input type="number" class="effort-input" data-idx="${i}" min="1" max="10" value="${s.effort || 5}" style="width:40px;background:transparent;border:1px solid var(--border);color:${effortColor(s.effort)};font-size:12px;font-family:inherit;text-align:center;border-radius:4px;padding:2px;outline:none;" />
         </td>
-        <td style="color:var(--text-muted);font-size:11px;">${secondsToTime(s.cumTime)}</td>
+        <td class="col-cumul" style="color:var(--text-muted);font-size:11px;">${secondsToTime(s.cumTime)}</td>
         ${todCell}
+        <td class="col-fuel" style="text-align:center;">
+          <button class="fuel-toggle" data-mile="${s.mile}" title="${fuelMiles.has(s.mile) ? 'Remove fuel stop' : 'Add fuel stop'}" style="width:28px;height:28px;border-radius:50%;border:1.5px solid ${fuelMiles.has(s.mile) ? 'var(--primary)' : 'var(--border)'};background:${fuelMiles.has(s.mile) ? 'rgba(65,174,159,0.1)' : 'transparent'};cursor:pointer;font-size:${fuelMiles.has(s.mile) ? '16px' : '14px'};line-height:1;color:${fuelMiles.has(s.mile) ? 'var(--primary)' : 'var(--text-muted)'};transition:all 0.15s;padding:0;">${fuelMiles.has(s.mile) ? '🍊' : '+'}</button>
+        </td>
       </tr>`;
     }).join("");
 
@@ -583,9 +655,35 @@
     tbody.querySelectorAll(".split-pace-input").forEach((input) => {
       input.addEventListener("change", (e) => {
         const idx = parseInt(e.target.dataset.idx);
-        const parts = e.target.value.split(":").map(Number);
-        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-          const newPace = parts[0] * 60 + parts[1];
+        const raw = e.target.value.trim();
+        let newPace = null;
+
+        if (raw.includes(":")) {
+          // Format: M:SS or MM:SS
+          const parts = raw.split(":").map(Number);
+          if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            newPace = parts[0] * 60 + parts[1];
+          }
+        } else {
+          // No colon - interpret as minutes (e.g. "8" → 8:00, "730" → 7:30, "815" → 8:15)
+          const num = parseInt(raw);
+          if (!isNaN(num)) {
+            if (num < 20) {
+              // Single or double digit: treat as whole minutes (e.g. 8 → 8:00)
+              newPace = num * 60;
+            } else if (num >= 100) {
+              // 3+ digits: first digit(s) = minutes, last two = seconds (e.g. 730 → 7:30, 815 → 8:15)
+              const mins = Math.floor(num / 100);
+              const secs = num % 100;
+              if (secs < 60) newPace = mins * 60 + secs;
+            } else {
+              // 20-99: treat as minutes + 0 seconds (e.g. 45 → 45:00... unlikely, but safe)
+              newPace = num * 60;
+            }
+          }
+        }
+
+        if (newPace && newPace > 0) {
           pacePlan.splits[idx].paceSeconds = newPace;
           pacePlan.splits[idx].pace = secondsToPace(newPace);
           recalcCumulativeTimes();
@@ -597,12 +695,24 @@
       });
     });
 
-    // Effort edit handlers (0-10)
+    // Effort edit handlers (0-10) - adjusts pace relative to effort
+    // Effort 5 = average goal pace, each point = ~2% pace change
     tbody.querySelectorAll(".effort-input").forEach((input) => {
       input.addEventListener("change", (e) => {
         const idx = parseInt(e.target.dataset.idx);
-        const val = Math.max(0, Math.min(10, parseInt(e.target.value) || 0));
-        pacePlan.splits[idx].effort = val;
+        const val = Math.max(1, Math.min(10, parseInt(e.target.value) || 5));
+        const split = pacePlan.splits[idx];
+        const avgPace = pacePlan.goalTime / course.distance;
+
+        // Map effort to pace: 5 = avgPace, higher effort = faster, lower = slower
+        // Each effort point shifts pace by ~2% of average
+        const effortDiff = val - 5;
+        const newPace = avgPace * (1 - effortDiff * 0.02);
+
+        split.effort = val;
+        split.paceSeconds = Math.max(newPace, avgPace * 0.6);
+        split.pace = secondsToPace(split.paceSeconds);
+        recalcCumulativeTimes();
         savePacePlan();
         renderSplitsTable();
         if (elevationChart) elevationChart.update("none");
@@ -610,15 +720,44 @@
       });
     });
 
+    // Fuel toggle handlers
+    tbody.querySelectorAll(".fuel-toggle").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const mile = parseInt(btn.dataset.mile);
+        if (fuelMiles.has(mile)) {
+          fuelMiles.delete(mile);
+        } else {
+          fuelMiles.add(mile);
+        }
+        saveFuelMiles();
+        renderFuelMapMarkers();
+        renderSplitsTable();
+      });
+    });
+
     // Click row to navigate
     tbody.querySelectorAll("tr[data-mile]").forEach((tr) => {
       tr.addEventListener("click", (e) => {
-        if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+        if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.target.tagName === "BUTTON") return;
         const mile = parseFloat(tr.dataset.mile) - 0.5;
         placeRunner(mile);
         map.panTo(getMilePosition(mile));
       });
     });
+
+    updateFinishTime();
+
+  }
+
+  function updateFinishTime() {
+    const bar = document.getElementById("finish-time-bar");
+    const val = document.getElementById("finish-time-value");
+    if (!bar || !val) return;
+    if (pacePlan.splits.length === 0) { bar.style.display = "none"; return; }
+    const lastSplit = pacePlan.splits[pacePlan.splits.length - 1];
+    bar.style.display = "";
+    val.textContent = secondsToTime(lastSplit.cumTime);
   }
 
   function recalcCumulativeTimes() {
@@ -654,6 +793,7 @@
 
   function renderSplitsList() {
     const list = document.getElementById("splits-list");
+    if (!list) return;
     let items = [];
 
     const keyMiles = [];
@@ -724,7 +864,8 @@
   }
 
   function renderReviews() {
-    const list = document.getElementById("splits-list");
+    const list = document.getElementById("reviews-container");
+    if (!list) return;
     // Remove old reviews section if exists
     const oldSection = list.querySelector(".reviews-section");
     if (oldSection) oldSection.remove();
@@ -795,7 +936,7 @@
         text,
       });
       saveReviews();
-      renderSplitsList(); // re-render with new review
+      renderReviews();
     });
   }
 
@@ -836,7 +977,34 @@
 
   function getAthletePrefix() { return window._runwellAthletePrefix || ""; }
   function getStorageKey() { return `runwell-${getAthletePrefix()}markers-${getRaceId()}`; }
-  function getPaceStorageKey() { return `runwell-${getAthletePrefix()}pace-${getRaceId()}`; }
+  function getPaceStorageKey() { return `runwell-${getAthletePrefix()}pace-${activeGoal === "B" ? "B-" : ""}${getRaceId()}`; }
+  function getFuelKey() { return `runwell-${getAthletePrefix()}fuel-${getRaceId()}`; }
+
+  function saveFuelMiles() {
+    localStorage.setItem(getFuelKey(), JSON.stringify([...fuelMiles]));
+  }
+
+  function loadFuelMiles() {
+    try { fuelMiles = new Set(JSON.parse(localStorage.getItem(getFuelKey()) || "[]")); } catch { fuelMiles = new Set(); }
+  }
+
+  function renderFuelMapMarkers() {
+    // Remove old markers
+    Object.values(fuelMapMarkers).forEach(m => map.removeLayer(m));
+    fuelMapMarkers = {};
+    // Add markers for each fuel mile
+    fuelMiles.forEach(mile => {
+      const pos = getMilePosition(mile - 0.5);
+      if (!pos) return;
+      const icon = L.divIcon({
+        html: '<div style="font-size:20px;text-align:center;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3));">🍊</div>',
+        className: "",
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+      fuelMapMarkers[mile] = L.marker(pos, { icon, interactive: false, zIndexOffset: 500 }).addTo(map);
+    });
+  }
 
   function saveCustomMarkers() {
     const data = customMarkers.map(({ mile, type, label, pace, effort, notes }) => ({ mile, type, label, pace, effort, notes }));
@@ -858,6 +1026,8 @@
       if (saved && saved.splits && saved.splits.length > 0) {
         pacePlan.goalTime = saved.goalTime;
         pacePlan.strategy = saved.strategy;
+        pacePlan.startApproach = saved.startApproach || "even-start";
+        pacePlan.elevAdjusted = saved.elevAdjusted;
         // Recalculate cumulative times
         let cum = 0;
         pacePlan.splits = saved.splits.map((s) => {
@@ -865,8 +1035,19 @@
           cum += splitTime;
           return { ...s, splitTime, cumTime: cum };
         });
+      } else {
+        // No saved plan for this goal - reset
+        pacePlan.goalTime = null;
+        pacePlan.strategy = "even";
+        pacePlan.startApproach = "even-start";
+        pacePlan.splits = [];
       }
-    } catch (e) {}
+    } catch (e) {
+      pacePlan.goalTime = null;
+      pacePlan.strategy = "even";
+      pacePlan.startApproach = "even-start";
+      pacePlan.splits = [];
+    }
   }
 
   // ─── Modals ───────────────────────────────────────────────────
@@ -874,7 +1055,8 @@
   function initModals() {
     const modal = document.getElementById("modal-overlay");
 
-    document.getElementById("btn-add-marker").addEventListener("click", () => {
+    const addMarkerBtn = document.getElementById("btn-add-marker");
+    if (addMarkerBtn) addMarkerBtn.addEventListener("click", () => {
       document.getElementById("modal-mile").value = runnerMile.toFixed(1);
       document.getElementById("modal-mile").max = course.distance;
       document.getElementById("modal-label").value = "";
@@ -898,8 +1080,14 @@
       modal.style.display = "none";
     });
 
-    // Export
-    document.getElementById("btn-export").addEventListener("click", exportPlan);
+    // Export (Advanced / Coach only)
+    document.getElementById("btn-export").addEventListener("click", () => {
+      if (typeof requirePro === "function") {
+        requirePro(() => exportPlan());
+      } else {
+        exportPlan();
+      }
+    });
 
     // Escape key closes any modal
     document.addEventListener("keydown", (e) => {
@@ -913,49 +1101,383 @@
   // ─── Export ────────────────────────────────────────────────────
 
   function exportPlan() {
-    let text = `RunWell Race Plan - ${course.name}\n`;
-    text += `Distance: ${course.distance.toFixed(2)} miles\n`;
-    if (pacePlan.goalTime) {
-      text += `Goal Time: ${secondsToTime(pacePlan.goalTime)} (${pacePlan.strategy} splits)\n`;
-      text += `Average Pace: ${secondsToPace(pacePlan.goalTime / course.distance)}/mi\n`;
-    }
-    text += `${"=".repeat(60)}\n\n`;
+    const btn = document.getElementById("btn-export");
+    btn.textContent = "Generating…";
+    btn.disabled = true;
 
-    // Splits table
+    // Capture elevation chart
+    const elevImg = document.getElementById("elevation-chart").toDataURL("image/png", 1.0);
+
+    // Capture the Leaflet map container as an image
+    const mapContainer = document.getElementById("map");
+    const mapCanvas = document.createElement("canvas");
+    const rect = mapContainer.getBoundingClientRect();
+    mapCanvas.width = rect.width * 2;
+    mapCanvas.height = rect.height * 2;
+    const ctx = mapCanvas.getContext("2d");
+    ctx.scale(2, 2);
+
+    // Use html2canvas on just the map div
+    const doExport = (mapDataUrl) => {
+      const freeNotes = document.getElementById("race-notes-freetext")?.value || "";
+      const html = buildExportHTML(mapDataUrl, elevImg, freeNotes);
+      const w = window.open("", "_blank");
+      if (!w) { alert("Please allow popups to export."); btn.textContent = "Export Plan"; btn.disabled = false; return; }
+      w.document.write(html);
+      w.document.close();
+      btn.textContent = "Export Plan";
+      btn.disabled = false;
+    };
+
+    // Fit map to route bounds before capture, wait for tiles to load
+    map.fitBounds(routeLine.getBounds().pad(0.05));
+    map.invalidateSize();
+
+    const captureMap = () => {
+      // Wait a beat for tiles to render after fitBounds
+      setTimeout(() => {
+        html2canvas(mapContainer, {
+          useCORS: true,
+          allowTaint: true,
+          scale: 2,
+          logging: false,
+          backgroundColor: "#ffffff",
+        }).then(c => doExport(c.toDataURL("image/png"))).catch(() => doExport(null));
+      }, 800);
+    };
+
+    if (typeof html2canvas !== "undefined") {
+      captureMap();
+    } else {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      s.onload = captureMap;
+      s.onerror = () => doExport(null);
+      document.head.appendChild(s);
+    }
+  }
+
+  function buildExportHTML(mapImg, elevImg, freeNotes) {
+    const raceName = course.name || "Race Plan";
+    const dist = course.distance.toFixed(2);
+    const goalStr = pacePlan.goalTime ? secondsToTime(pacePlan.goalTime) : "-";
+    const stratStr = pacePlan.strategy || "-";
+    const avgPace = pacePlan.goalTime ? secondsToPace(pacePlan.goalTime / course.distance) + "/mi" : "-";
+    const elevGain = Math.round(course.elevation.reduce((sum, p, i, arr) => i === 0 ? 0 : sum + Math.max(0, p.elev - arr[i - 1].elev), 0));
+    const elevLoss = Math.round(course.elevation.reduce((sum, p, i, arr) => i === 0 ? 0 : sum + Math.max(0, arr[i - 1].elev - p.elev), 0));
+
+    const icons = { nutrition: "🍊", water: "💧", pace: "⏱", note: "📝", effort: "💪" };
+    const fuelStops = [...fuelMiles].sort((a, b) => a - b);
+    const allNotes = [...customMarkers].sort((a, b) => a.mile - b.mile);
+
+    // Build splits rows
+    let splitsHTML = "";
     if (pacePlan.splits.length > 0) {
-      text += "MILE-BY-MILE SPLITS\n";
-      text += "-".repeat(60) + "\n";
-      text += "Mile   Elev   Pace      Effort     Cumul. Time\n";
-      text += "-".repeat(60) + "\n";
       pacePlan.splits.forEach((s) => {
         const elevChange = getElevChangeForMile(s.mile);
-        const elevStr = (elevChange >= 0 ? "+" : "") + Math.round(elevChange) + "′";
-        text += `${String(s.mile).padStart(4)}   ${elevStr.padStart(6)}   ${s.pace.padStart(5)}/mi   ${(s.effort || "—").padEnd(10)} ${secondsToTime(s.cumTime)}\n`;
-      });
-      text += "\n";
-    }
-
-    // Notes
-    if (customMarkers.length > 0) {
-      text += "RACE NOTES\n";
-      text += "-".repeat(60) + "\n";
-      [...customMarkers].sort((a, b) => a.mile - b.mile).forEach((cm) => {
-        const elev = Math.round(getElevationAtMile(cm.mile));
-        text += `Mile ${cm.mile.toFixed(1).padStart(5)} | ${cm.type.toUpperCase().padEnd(10)} | ${cm.label}`;
-        if (cm.pace) text += ` | Pace: ${cm.pace}/mi`;
-        if (cm.effort) text += ` | Effort: ${cm.effort}`;
-        if (cm.notes) text += `\n         ${cm.notes}`;
-        text += "\n";
+        const elevIcon = elevChange > 20 ? "↑" : elevChange < -20 ? "↓" : "-";
+        const elevColor = elevChange > 20 ? "#ef4444" : elevChange < -20 ? "#41AE9F" : "#6b7280";
+        const mileLabel = s.mileLength < 1 ? `${s.mile - 1}→${course.distance.toFixed(1)}` : s.mile;
+        // Check if there's a fuel stop at this mile
+        const hasFuel = fuelMiles.has(s.mile);
+        const fuelIcons = hasFuel ? '🍊' : '';
+        splitsHTML += `<tr>
+          <td>${mileLabel}</td>
+          <td style="color:${elevColor}">${elevIcon}${Math.abs(Math.round(elevChange))}′</td>
+          <td>${s.pace}</td>
+          <td>${secondsToTime(s.cumTime)}</td>
+          <td class="fuel-cell">${fuelIcons}</td>
+        </tr>`;
       });
     }
 
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `race-plan-${(course.name || "plan").replace(/[^a-z0-9]/gi, "-").toLowerCase()}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Build notes section
+    let notesHTML = "";
+    if (allNotes.length > 0) {
+      allNotes.forEach(cm => {
+        notesHTML += `<div class="note-item">
+          <span class="note-icon">${icons[cm.type] || "📌"}</span>
+          <span class="note-mile">Mile ${cm.mile.toFixed(1)}</span>
+          <span class="note-label">${cm.label}</span>
+          ${cm.notes ? `<span class="note-detail">${cm.notes}</span>` : ""}
+        </div>`;
+      });
+    }
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>${raceName} | Race Plan</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  @page { size: letter; margin: 0.5in; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    color: #1a1a2e;
+    background: #fff;
+    width: 7.5in;
+    margin: 0 auto;
+    padding: 0.25in 0;
+  }
+  @media print {
+    body { width: auto; padding: 0; padding-top: 0 !important; }
+    #print-bar { display: none !important; }
+  }
+  body { padding-top: 50px; }
+
+  /* Header */
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 3px solid #41AE9F;
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+  }
+  .header-left h1 {
+    font-size: 22px;
+    font-weight: 800;
+    color: #334264;
+    letter-spacing: -0.5px;
+  }
+  .header-left .subtitle {
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 2px;
+  }
+  .header-right {
+    text-align: right;
+    font-size: 10px;
+    color: #6b7280;
+  }
+  .brand {
+    font-size: 12px;
+    font-weight: 700;
+    color: #41AE9F;
+  }
+
+  /* Stats bar */
+  .stats-bar {
+    display: flex;
+    gap: 0;
+    margin-bottom: 14px;
+    border: 1px solid #e2e5e9;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .stat {
+    flex: 1;
+    padding: 10px 12px;
+    text-align: center;
+    border-right: 1px solid #e2e5e9;
+  }
+  .stat:last-child { border-right: none; }
+  .stat-label { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: #6b7280; }
+  .stat-value { font-size: 16px; font-weight: 800; color: #334264; margin-top: 2px; }
+  .stat-value small { font-size: 11px; font-weight: 500; color: #6b7280; }
+
+  .section-title {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #6b7280;
+    margin-bottom: 4px;
+  }
+
+  /* Map + splits overlay */
+  .map-splits-row {
+    display: flex;
+    gap: 0;
+    margin-bottom: 8px;
+    border: 1px solid #e2e5e9;
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 340px;
+  }
+  .map-col {
+    flex: 1;
+    position: relative;
+    min-width: 0;
+  }
+  .map-col img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .splits-col {
+    width: 230px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    background: #fff;
+    border-left: 1px solid #e2e5e9;
+  }
+
+  /* Splits table - compact */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9px;
+  }
+  thead th {
+    background: #334264;
+    color: #fff;
+    font-weight: 600;
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    padding: 3px 4px;
+    text-align: left;
+    position: sticky;
+    top: 0;
+  }
+  tbody td {
+    padding: 2px 4px;
+    border-bottom: 1px solid #f0f2f4;
+    white-space: nowrap;
+  }
+  tbody tr:nth-child(even) { background: #f8f9fa; }
+  td.fuel-cell { font-size: 12px; text-align: center; }
+
+  /* Elevation */
+  .elevation-section { margin-bottom: 8px; }
+  .elevation-img {
+    width: 100%;
+    height: auto;
+    max-height: 100px;
+    object-fit: contain;
+    border: 1px solid #e2e5e9;
+    border-radius: 6px;
+  }
+
+  /* Notes section */
+  .notes-section { margin-bottom: 10px; }
+  .note-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    border-bottom: 1px solid #f0f2f4;
+    font-size: 10px;
+  }
+  .note-icon { font-size: 14px; flex-shrink: 0; }
+  .note-mile { font-weight: 700; color: #334264; min-width: 48px; }
+  .note-label { font-weight: 500; }
+  .note-detail { color: #6b7280; font-style: italic; }
+
+  /* Footer */
+  .footer {
+    margin-top: 10px;
+    padding-top: 6px;
+    border-top: 1px solid #e2e5e9;
+    display: flex;
+    justify-content: space-between;
+    font-size: 8px;
+    color: #6b7280;
+  }
+
+  /* Page break for notes */
+  .notes-page { page-break-before: always; }
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-left">
+      <h1>${raceName}</h1>
+      <div class="subtitle">${dist} miles &middot; ${stratStr} splits strategy</div>
+    </div>
+    <div class="header-right">
+      <div class="brand">Interactive Race Strategies</div>
+      <div>Powered by RunWell Clinic</div>
+      <div>Generated ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+    </div>
+  </div>
+
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-label">Goal Time</div>
+      <div class="stat-value">${goalStr}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Avg Pace</div>
+      <div class="stat-value">${avgPace}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Distance</div>
+      <div class="stat-value">${dist} <small>mi</small></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Elev Gain</div>
+      <div class="stat-value">▲${elevGain}′</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Elev Loss</div>
+      <div class="stat-value">▼${elevLoss}′</div>
+    </div>
+    ${fuelStops.length > 0 ? `<div class="stat">
+      <div class="stat-label">Fuel Stops</div>
+      <div class="stat-value">${fuelStops.length}</div>
+    </div>` : ""}
+  </div>
+
+  <div class="map-splits-row">
+    <div class="map-col">
+      ${mapImg ? `<img src="${mapImg}" alt="Course Map" />` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#f8f9fa;color:#6b7280;font-size:12px;">Course Map</div>`}
+    </div>
+    ${splitsHTML ? `<div class="splits-col">
+      <table>
+        <thead>
+          <tr><th>Mi</th><th>Elev</th><th>Pace</th><th>Time</th><th></th></tr>
+        </thead>
+        <tbody>${splitsHTML}</tbody>
+      </table>
+    </div>` : ""}
+  </div>
+
+  <div class="elevation-section">
+    <div class="section-title">Elevation Profile</div>
+    <img class="elevation-img" src="${elevImg}" alt="Elevation Profile" />
+  </div>
+
+  <div class="footer">
+    <span>RunWell Clinic &middot; Interactive Race Strategies</span>
+    <span>runwellclinic.com</span>
+  </div>
+
+  ${(notesHTML || freeNotes) ? `
+  <div style="page-break-before:always;"></div>
+  <div class="header" style="margin-top:0;">
+    <div class="header-left">
+      <h1>${raceName}</h1>
+      <div class="subtitle">Race Notes</div>
+    </div>
+    <div class="header-right">
+      <div class="brand">Interactive Race Strategies</div>
+    </div>
+  </div>
+  ${notesHTML ? `<div class="notes-section">
+    <div class="section-title">Course Markers</div>
+    ${notesHTML}
+  </div>` : ""}
+  ${freeNotes ? `<div class="notes-section">
+    <div class="section-title">Notes</div>
+    <div style="font-size:12px;line-height:1.7;color:#1a1a2e;white-space:pre-wrap;border:1px solid #e2e5e9;border-radius:8px;padding:14px;background:#f8f9fa;">${freeNotes.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+  </div>` : ""}
+  <div class="footer">
+    <span>RunWell Clinic &middot; Interactive Race Strategies</span>
+    <span>runwellclinic.com</span>
+  </div>
+  ` : ""}
+  <div id="print-bar" style="position:fixed;top:0;left:0;right:0;background:#334264;color:#fff;text-align:center;padding:10px;font-size:14px;font-weight:600;z-index:9999;">
+    <button onclick="window.print()" style="background:#41AE9F;color:#fff;border:none;padding:8px 24px;border-radius:20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">Save as PDF</button>
+    <span style="margin-left:12px;font-size:12px;opacity:0.8;">Use "Save as PDF" in the print dialog</span>
+  </div>
+</body>
+</html>`;
   }
 
   // ─── Load Course & Boot ───────────────────────────────────────
@@ -996,12 +1518,37 @@
     loadReviews();
     loadCustomMarkers();
     loadPacePlan();
+    loadFuelMiles();
+    renderFuelMapMarkers();
     renderSplitsList();
+    renderReviews();
     renderSplitsTable();
     updatePaceSummary();
 
+    // Splits view toggle (Per Mile / Segments)
+    initSplitsViewToggle();
+
+    // Free-text race notes persistence
+    const notesTextarea = document.getElementById("race-notes-freetext");
+    if (notesTextarea) {
+      const notesKey = `runwell-${getAthletePrefix()}notes-${getRaceId()}`;
+      notesTextarea.value = localStorage.getItem(notesKey) || "";
+      notesTextarea.addEventListener("input", () => localStorage.setItem(notesKey, notesTextarea.value));
+    }
+
+    // Bottom panel tabs (Elevation / Weather)
+    initBottomTabs();
+
+    // Coach: Goal A/B toggle
+    initGoalToggle();
+
     // Expose hooks for pro-features.js
     window._runwellCourseDistance = course.distance;
+    window._runwellPacePlan = pacePlan;
+    window._runwellFuelMiles = fuelMiles;
+    window._runwellSaveFuelMiles = saveFuelMiles;
+    window._runwellRenderFuelMapMarkers = renderFuelMapMarkers;
+    window._runwellRenderSplitsTable = renderSplitsTable;
     window._runwellAddMarker = function (data) {
       addCustomMarker(data);
     };
@@ -1018,6 +1565,538 @@
       if (elevationChart) elevationChart.update("none");
       updateRunnerInfo(runnerMile);
     };
+  }
+
+  // ─── Bottom Panel Tabs (Elevation / Weather) ─────────────────
+
+  // ─── Splits View Toggle (Per Mile / Segments) ──────────────
+
+  let segments = [];
+  let activeView = "mile";
+
+  function parsePaceStr(str) {
+    if (!str) return 0;
+    const raw = str.replace("/mi", "").trim();
+    if (raw.includes(":")) {
+      const p = raw.split(":").map(Number);
+      return p.length === 2 && !isNaN(p[0]) && !isNaN(p[1]) ? p[0] * 60 + p[1] : 0;
+    }
+    const n = parseInt(raw);
+    if (isNaN(n)) return 0;
+    if (n < 20) return n * 60;
+    if (n >= 100) { const m = Math.floor(n/100), s = n%100; return s < 60 ? m*60+s : 0; }
+    return n * 60;
+  }
+
+  function getSegmentElevation(startMile, endMile) {
+    let totalGain = 0, totalLoss = 0;
+    for (let m = startMile; m <= endMile; m++) {
+      const change = getElevChangeForMile(m);
+      if (change > 0) totalGain += change;
+      else totalLoss += Math.abs(change);
+    }
+    return { gain: Math.round(totalGain), loss: Math.round(totalLoss) };
+  }
+
+  function initSplitsViewToggle() {
+    loadSegments();
+
+    window._switchSplitsView = function(view) {
+      if (view === "segment") {
+        var isAdvanced = false;
+        try { var u = JSON.parse(localStorage.getItem("runwell-user")); isAdvanced = u && (u.plan === "advanced" || u.plan === "pro" || u.plan === "coach"); } catch(e) {}
+        if (!isAdvanced) {
+          var gateModal = document.getElementById("pro-gate-modal");
+          if (gateModal) gateModal.style.display = "flex";
+          return;
+        }
+      }
+      if (view === activeView) return;
+      activeView = view;
+
+      var mileBtn = document.getElementById("view-btn-mile");
+      var segBtn = document.getElementById("view-btn-segment");
+      if (mileBtn) {
+        mileBtn.style.background = view === "mile" ? "#fff" : "transparent";
+        mileBtn.style.color = view === "mile" ? "var(--navy)" : "var(--text-muted)";
+        mileBtn.style.boxShadow = view === "mile" ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
+      }
+      if (segBtn) {
+        segBtn.style.background = view === "segment" ? "#fff" : "transparent";
+        segBtn.style.color = view === "segment" ? "var(--navy)" : "var(--text-muted)";
+        segBtn.style.boxShadow = view === "segment" ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
+      }
+
+      document.getElementById("splits-table-wrapper").style.display = view === "mile" ? "" : "none";
+      document.getElementById("segment-view").style.display = view === "segment" ? "block" : "none";
+
+      if (view === "segment") {
+        if (segments.length === 0) buildDefaultSegments();
+        renderSegments();
+      }
+    };
+
+    window._addSegment = function() {
+      var dist = course.distance;
+      var lastEnd = segments.length > 0 ? segments[segments.length - 1].end : 0;
+      if (lastEnd >= dist) return;
+      var newStart = Math.round((lastEnd + 0.1) * 10) / 10;
+      if (newStart < 1) newStart = 1;
+      var newEnd = Math.min(Math.round((newStart + 4) * 10) / 10, dist);
+      var defaultPace = pacePlan.goalTime ? secondsToPace(pacePlan.goalTime / course.distance) : "";
+      segments.push({ start: newStart, end: newEnd, label: "", pace: defaultPace });
+      renderSegments();
+      saveSegments();
+    };
+  }
+
+  function buildDefaultSegments() {
+    const dist = course.distance; // e.g. 26.2 or 13.1
+    const defaultPace = pacePlan.goalTime ? secondsToPace(pacePlan.goalTime / dist) : "";
+
+    if (dist <= 15) {
+      // Half marathon (13.1)
+      segments = [
+        { start: 1, end: 3, label: "Warm up", pace: defaultPace },
+        { start: 4, end: 8, label: "Settle in", pace: defaultPace },
+        { start: 9, end: 11, label: "Push", pace: defaultPace },
+        { start: 12, end: 13.1, label: "Finish", pace: defaultPace },
+      ];
+    } else {
+      // Full marathon (26.2)
+      segments = [
+        { start: 1, end: 3, label: "Warm up", pace: defaultPace },
+        { start: 4, end: 10, label: "Settle in", pace: defaultPace },
+        { start: 11, end: 16, label: "Mid race", pace: defaultPace },
+        { start: 17, end: 20, label: "Stay strong", pace: defaultPace },
+        { start: 21, end: 26.2, label: "Finish push", pace: defaultPace },
+      ];
+    }
+
+    // Adjust paces from splits if available
+    if (pacePlan.splits.length > 0) {
+      segments.forEach(seg => {
+        const matching = pacePlan.splits.filter(s => s.mile >= seg.start && s.mile <= seg.end);
+        if (matching.length > 0) {
+          const avg = matching.reduce((sum, s) => sum + s.paceSeconds, 0) / matching.length;
+          seg.pace = secondsToPace(avg);
+        }
+      });
+    }
+    saveSegments();
+  }
+
+  function renderSegments() {
+    const wrapper = document.getElementById("segment-table-wrapper");
+    const dist = course.distance; // 26.2 or 13.1
+
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html += `<thead><tr style="background:var(--navy);color:#fff;">
+      <th style="padding:6px 8px;font-size:10px;font-weight:600;text-transform:uppercase;">Miles</th>
+      <th style="padding:6px 8px;font-size:10px;font-weight:600;">Label</th>
+      <th style="padding:6px 8px;font-size:10px;font-weight:600;">Pace</th>
+      <th style="padding:6px 8px;font-size:10px;font-weight:600;">Elev</th>
+      <th style="padding:6px 8px;font-size:10px;font-weight:600;">Time</th>
+      <th style="padding:6px 4px;width:24px;"></th>
+    </tr></thead><tbody>`;
+
+    let grandTotal = 0;
+
+    segments.forEach((seg, i) => {
+      const miles = Math.round((seg.end - seg.start + 1) * 10) / 10;
+      const paceSec = parsePaceStr(seg.pace);
+      const segTime = paceSec > 0 ? paceSec * miles : 0;
+      grandTotal += segTime;
+      const elev = getSegmentElevation(seg.start, seg.end);
+      const elevStr = `↑${elev.gain}′ ↓${elev.loss}′`;
+      const elevColor = elev.gain > elev.loss ? "var(--accent-red)" : elev.gain < elev.loss ? "var(--accent-green)" : "var(--text-muted)";
+
+      html += `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:6px 8px;white-space:nowrap;">
+          <input type="number" class="seg-input seg-start" data-idx="${i}" value="${seg.start}" min="1" max="${dist}" step="0.1" style="width:46px;padding:2px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
+          <span style="color:var(--text-muted);font-size:10px;margin:0 2px;">to</span>
+          <input type="number" class="seg-input seg-end" data-idx="${i}" value="${seg.end}" min="1" max="${dist}" step="0.1" style="width:46px;padding:2px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
+        </td>
+        <td style="padding:6px 8px;">
+          <input type="text" class="seg-input seg-label" data-idx="${i}" value="${seg.label}" placeholder="Label" style="width:100%;padding:2px 5px;border:1px solid var(--border);border-radius:4px;font-size:11px;font-family:inherit;" />
+        </td>
+        <td style="padding:6px 8px;">
+          <input type="text" class="seg-input seg-pace" data-idx="${i}" value="${seg.pace}" placeholder="8:00" style="width:52px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
+        </td>
+        <td style="padding:6px 8px;font-size:10px;color:${elevColor};white-space:nowrap;">${elevStr}</td>
+        <td style="padding:6px 8px;font-size:11px;color:var(--text-muted);font-weight:600;">${segTime > 0 ? secondsToTime(segTime) : ""}</td>
+        <td style="padding:6px 4px;">
+          <button class="seg-remove" data-idx="${i}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:0;">×</button>
+        </td>
+      </tr>`;
+    });
+
+    html += '</tbody></table>';
+
+    // Finish estimate
+    if (grandTotal > 0) {
+      html += `<div style="padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Estimated Finish</span>
+        <span style="font-size:22px;font-weight:800;color:var(--navy);">${secondsToTime(grandTotal)}</span>
+      </div>`;
+    }
+
+    wrapper.innerHTML = html;
+
+    // Wire up all handlers
+    wrapper.querySelectorAll(".seg-start").forEach(el => el.addEventListener("change", e => {
+      segments[+e.target.dataset.idx].start = parseFloat(e.target.value) || 1;
+      renderSegments(); saveSegments();
+    }));
+    wrapper.querySelectorAll(".seg-end").forEach(el => el.addEventListener("change", e => {
+      segments[+e.target.dataset.idx].end = Math.min(parseFloat(e.target.value) || 1, course.distance);
+      renderSegments(); saveSegments();
+    }));
+    wrapper.querySelectorAll(".seg-label").forEach(el => el.addEventListener("change", e => {
+      segments[+e.target.dataset.idx].label = e.target.value;
+      saveSegments();
+    }));
+    wrapper.querySelectorAll(".seg-pace").forEach(el => el.addEventListener("change", e => {
+      const idx = +e.target.dataset.idx;
+      const val = e.target.value.trim();
+      const sec = parsePaceStr(val);
+      segments[idx].pace = sec > 0 ? secondsToPace(sec) : val;
+      renderSegments(); saveSegments();
+    }));
+    wrapper.querySelectorAll(".seg-remove").forEach(el => el.addEventListener("click", e => {
+      segments.splice(+e.target.dataset.idx, 1);
+      renderSegments(); saveSegments();
+    }));
+  }
+
+  function saveSegments() {
+    localStorage.setItem(`runwell-${getAthletePrefix()}segments-${activeGoal === "B" ? "B-" : ""}${getRaceId()}`, JSON.stringify(segments));
+  }
+
+  function loadSegments() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`runwell-${getAthletePrefix()}segments-${activeGoal === "B" ? "B-" : ""}${getRaceId()}`));
+      if (saved && saved.length > 0) segments = saved;
+    } catch (e) {}
+  }
+
+  function initGoalToggle() {
+    const toggle = document.getElementById("goal-toggle");
+    if (!toggle) return;
+
+    // goal-toggle uses effort-col class, so it's only visible for Coach
+    // Wire up the tab clicks
+    toggle.querySelectorAll(".goal-tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        const goal = tab.dataset.goal;
+        if (goal === activeGoal) return;
+
+        // Save current plan before switching
+        savePacePlan();
+
+        // Swap pace plan in memory
+        if (activeGoal === "A") {
+          // Store A, load B
+          pacePlanB = { ...pacePlan, splits: [...pacePlan.splits] };
+          activeGoal = "B";
+          loadPacePlan(); // loads from B key
+        } else {
+          // Store B, load A
+          pacePlanB = { ...pacePlan, splits: [...pacePlan.splits] };
+          activeGoal = "A";
+          loadPacePlan(); // loads from A key
+        }
+
+        // Update tab UI
+        toggle.querySelectorAll(".goal-tab").forEach(t => {
+          const isActive = t.dataset.goal === activeGoal;
+          t.style.background = isActive ? "#fff" : "transparent";
+          t.style.color = isActive ? "var(--navy)" : "var(--text-muted)";
+          t.style.boxShadow = isActive ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
+          t.classList.toggle("active", isActive);
+        });
+
+        renderSplitsTable();
+        updatePaceSummary();
+        updateFinishTime();
+        if (elevationChart) elevationChart.update("none");
+      });
+    });
+  }
+
+  let weatherLoaded = false;
+
+  function initBottomTabs() {
+    document.querySelectorAll(".bottom-tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        const which = tab.dataset.bottomTab;
+
+        // Race History is Advanced/Coach only
+        if (which === "history") {
+          var isAdvanced = false;
+          try { var u = JSON.parse(localStorage.getItem("runwell-user")); isAdvanced = u && (u.plan === "advanced" || u.plan === "pro" || u.plan === "coach"); } catch(e) {}
+          if (!isAdvanced) {
+            var gateModal = document.getElementById("pro-gate-modal");
+            if (gateModal) gateModal.style.display = "flex";
+            return;
+          }
+        }
+
+        document.querySelectorAll(".bottom-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("elevation-chart-wrapper").style.display = which === "elevation" ? "" : "none";
+        document.getElementById("elevation-stats").style.display = which === "elevation" ? "" : "none";
+        document.getElementById("weather-panel").style.display = which === "weather" ? "" : "none";
+        document.getElementById("history-inline-panel").style.display = which === "history" ? "" : "none";
+        if (which === "weather" && !weatherLoaded) {
+          weatherLoaded = true;
+          loadWeatherData();
+        }
+        if (which === "history") {
+          renderInlineHistory();
+        }
+      });
+    });
+  }
+
+  function renderInlineHistory() {
+    const container = document.getElementById("history-inline-content");
+    if (!container) return;
+    let history = [];
+    try { history = JSON.parse(localStorage.getItem("runwell-race-history") || "[]"); } catch (e) {}
+
+    container.innerHTML = `
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div style="flex:2;min-width:140px;">
+          <label style="display:block;font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">Race Name</label>
+          <input type="text" id="inline-hist-name" placeholder="e.g. NYC Marathon" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:inherit;" />
+        </div>
+        <div style="flex:1;min-width:100px;">
+          <label style="display:block;font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">Date</label>
+          <input type="date" id="inline-hist-date" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:inherit;" />
+        </div>
+        <div style="flex:1;min-width:100px;">
+          <label style="display:block;font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">Distance</label>
+          <select id="inline-hist-dist" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:inherit;">
+            <option value="26.2">Marathon</option>
+            <option value="13.1">Half</option>
+            <option value="6.2">10K</option>
+            <option value="3.1">5K</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:90px;">
+          <label style="display:block;font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;margin-bottom:3px;">Finish Time</label>
+          <input type="text" id="inline-hist-time" placeholder="3:45:00" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;font-family:inherit;" />
+        </div>
+        <button id="inline-hist-add" style="background:var(--primary);color:#fff;border:none;padding:7px 14px;border-radius:var(--radius-pill);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">+ Add</button>
+      </div>
+      ${history.length === 0 ?
+        '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;">No past races logged yet. Add your previous race results above.</div>' :
+        `<table style="width:100%;border-collapse:collapse;font-size:11px;">
+          <thead>
+            <tr style="background:var(--surface-2);">
+              <th style="padding:5px 8px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text-muted);">Race</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text-muted);">Date</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text-muted);">Dist</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text-muted);">Time</th>
+              <th style="padding:5px 8px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text-muted);">Pace</th>
+              <th style="width:24px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${[...history].sort((a, b) => (b.date || "").localeCompare(a.date || "")).map((r, i) => {
+              const distMi = parseFloat(r.distance);
+              const timeParts = r.time.split(":").map(Number);
+              let totalSec = 0;
+              if (timeParts.length === 3) totalSec = timeParts[0]*3600 + timeParts[1]*60 + timeParts[2];
+              else if (timeParts.length === 2) totalSec = timeParts[0]*60 + timeParts[1];
+              const paceSec = distMi > 0 ? totalSec / distMi : 0;
+              const paceMin = Math.floor(paceSec / 60);
+              const paceS = Math.round(paceSec % 60);
+              const paceStr = paceSec > 0 ? `${paceMin}:${String(paceS).padStart(2,"0")}/mi` : "";
+              return `<tr style="border-bottom:1px solid var(--surface-2);">
+                <td style="padding:5px 8px;font-weight:600;">${r.name}</td>
+                <td style="padding:5px 8px;color:var(--text-muted);">${r.date || ""}</td>
+                <td style="padding:5px 8px;">${distMi === 26.2 ? "Marathon" : distMi === 13.1 ? "Half" : distMi + " mi"}</td>
+                <td style="padding:5px 8px;font-weight:600;">${r.time}</td>
+                <td style="padding:5px 8px;color:var(--text-muted);">${paceStr}</td>
+                <td style="padding:5px 4px;"><button class="inline-hist-remove" data-idx="${i}" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:14px;">×</button></td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>`
+      }
+    `;
+
+    // Add handler
+    document.getElementById("inline-hist-add").addEventListener("click", () => {
+      const name = document.getElementById("inline-hist-name").value.trim();
+      const date = document.getElementById("inline-hist-date").value;
+      const distance = document.getElementById("inline-hist-dist").value;
+      const time = document.getElementById("inline-hist-time").value.trim();
+      if (!name || !time) { alert("Please enter a race name and finish time."); return; }
+      let h = [];
+      try { h = JSON.parse(localStorage.getItem("runwell-race-history") || "[]"); } catch (e) {}
+      h.push({ name, date, distance, time });
+      localStorage.setItem("runwell-race-history", JSON.stringify(h));
+      renderInlineHistory();
+    });
+
+    // Remove handlers
+    document.querySelectorAll(".inline-hist-remove").forEach(btn => {
+      btn.addEventListener("click", () => {
+        let h = [];
+        try { h = JSON.parse(localStorage.getItem("runwell-race-history") || "[]"); } catch (e) {}
+        const sorted = [...h].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+        const target = sorted[parseInt(btn.dataset.idx)];
+        const origIdx = h.findIndex(r => r.name === target.name && r.time === target.time && r.date === target.date);
+        if (origIdx >= 0) h.splice(origIdx, 1);
+        localStorage.setItem("runwell-race-history", JSON.stringify(h));
+        renderInlineHistory();
+      });
+    });
+  }
+
+  function getHistoricalRaceDates(schedule, years) {
+    // Compute past race dates for the given schedule
+    const dates = [];
+    const currentYear = new Date().getFullYear();
+    for (let y = currentYear - 1; y >= currentYear - years; y--) {
+      try {
+        const d = _nthWeekday(y, schedule.month, schedule.week, schedule.day);
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        dates.push({ year: y, date: `${y}-${mm}-${dd}` });
+      } catch (e) { /* skip */ }
+    }
+    return dates;
+  }
+
+  async function loadWeatherData() {
+    const loading = document.getElementById("weather-loading");
+    const content = document.getElementById("weather-content");
+
+    // Find race info
+    const raceId = new URLSearchParams(window.location.search).get("race");
+    const race = typeof RACES !== "undefined" && RACES.find(r => r.id === raceId);
+
+    if (!race || !race.schedule || !race.lat || !race.lng) {
+      loading.textContent = "Weather data not available for this course.";
+      return;
+    }
+
+    const historicalDates = getHistoricalRaceDates(race.schedule, 10);
+    if (historicalDates.length === 0) {
+      loading.textContent = "Could not compute historical race dates.";
+      return;
+    }
+
+    // Fetch from Open-Meteo Historical API
+    const startDate = historicalDates[historicalDates.length - 1].date;
+    const endDate = historicalDates[0].date;
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${race.lat}&longitude=${race.lng}&start_date=${startDate}&end_date=${endDate}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,relative_humidity_2m_mean&temperature_unit=fahrenheit&windspeed_unit=mph&precipitation_unit=inch&timezone=auto`;
+
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+
+      // Extract data for each historical race date
+      const dailyDates = data.daily?.time || [];
+      const results = [];
+      historicalDates.forEach(hd => {
+        const idx = dailyDates.indexOf(hd.date);
+        if (idx === -1) return;
+        results.push({
+          year: hd.year,
+          date: hd.date,
+          tempMax: data.daily.temperature_2m_max[idx],
+          tempMin: data.daily.temperature_2m_min[idx],
+          precip: data.daily.precipitation_sum[idx],
+          wind: data.daily.windspeed_10m_max[idx],
+          humidity: data.daily.relative_humidity_2m_mean?.[idx],
+        });
+      });
+
+      if (results.length === 0) {
+        loading.textContent = "No historical weather data found for race dates.";
+        return;
+      }
+
+      // Compute averages
+      const avgHigh = (results.reduce((s, r) => s + (r.tempMax || 0), 0) / results.length).toFixed(0);
+      const avgLow = (results.reduce((s, r) => s + (r.tempMin || 0), 0) / results.length).toFixed(0);
+      const avgWind = (results.reduce((s, r) => s + (r.wind || 0), 0) / results.length).toFixed(0);
+      const avgHumidity = (results.reduce((s, r) => s + (r.humidity || 0), 0) / results.length).toFixed(0);
+      const rainyDays = results.filter(r => r.precip > 0.05).length;
+
+      content.innerHTML = `
+        <div class="weather-summary">
+          <div class="weather-summary-stat">
+            <div class="ws-label">Avg High</div>
+            <div class="ws-value">${avgHigh}°F</div>
+          </div>
+          <div class="weather-summary-stat">
+            <div class="ws-label">Avg Low</div>
+            <div class="ws-value">${avgLow}°F</div>
+          </div>
+          <div class="weather-summary-stat">
+            <div class="ws-label">Avg Wind</div>
+            <div class="ws-value">${avgWind} mph</div>
+          </div>
+          <div class="weather-summary-stat">
+            <div class="ws-label">Avg Humidity</div>
+            <div class="ws-value">${avgHumidity}%</div>
+          </div>
+          <div class="weather-summary-stat">
+            <div class="ws-label">Rain Chance</div>
+            <div class="ws-value">${Math.round(rainyDays / results.length * 100)}%</div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">Based on race day weather for the last ${results.length} years. Click a year for details.</div>
+        <div class="weather-year-list">
+          ${results.map((r, i) => {
+            const precipIcon = r.precip > 0.05 ? "🌧" : "☀️";
+            return `<div class="weather-year-row" data-weather-idx="${i}">
+              <span class="wyr-year">${r.year}</span>
+              <span class="wyr-temp">${Math.round(r.tempMax)}°/${Math.round(r.tempMin)}°F</span>
+              <span class="wyr-icon">${precipIcon}</span>
+              <span class="wyr-wind">${Math.round(r.wind)} mph</span>
+              <span class="wyr-expand">&#9662;</span>
+            </div>
+            <div class="weather-year-detail" id="weather-detail-${i}" style="display:none;">
+              <div class="wyd-grid">
+                <div class="wyd-item"><span class="wyd-label">High</span><span class="wyd-val">${Math.round(r.tempMax)}°F</span></div>
+                <div class="wyd-item"><span class="wyd-label">Low</span><span class="wyd-val">${Math.round(r.tempMin)}°F</span></div>
+                <div class="wyd-item"><span class="wyd-label">Wind</span><span class="wyd-val">${Math.round(r.wind)} mph</span></div>
+                <div class="wyd-item"><span class="wyd-label">Humidity</span><span class="wyd-val">${r.humidity != null ? Math.round(r.humidity) + "%" : "-"}</span></div>
+                <div class="wyd-item"><span class="wyd-label">Precip</span><span class="wyd-val">${r.precip > 0.05 ? r.precip.toFixed(2) + '"' : "None"}</span></div>
+                <div class="wyd-item"><span class="wyd-label">Date</span><span class="wyd-val">${r.date}</span></div>
+              </div>
+            </div>`;
+          }).join("")}
+        </div>
+      `;
+
+      // Year row click to expand/collapse
+      content.querySelectorAll(".weather-year-row").forEach(row => {
+        row.addEventListener("click", () => {
+          const idx = row.dataset.weatherIdx;
+          const detail = document.getElementById("weather-detail-" + idx);
+          const arrow = row.querySelector(".wyr-expand");
+          const isOpen = detail.style.display !== "none";
+          detail.style.display = isOpen ? "none" : "";
+          arrow.innerHTML = isOpen ? "&#9662;" : "&#9652;";
+          row.classList.toggle("expanded", !isOpen);
+        });
+      });
+
+      loading.style.display = "none";
+      content.style.display = "";
+    } catch (err) {
+      loading.textContent = "Failed to load weather data. Please try again.";
+      console.error("Weather fetch error:", err);
+    }
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", loadCourse);

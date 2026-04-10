@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Features | Interactive Race Strategies</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #ffffff;
+      --surface: #f8f9fa;
+      --surface-2: #f0f2f4;
+      --border: #e2e5e9;
+      --text: #1a1a2e;
+      --text-muted: #6b7280;
+      --primary: #41AE9F;
+      --primary-hover: #369e90;
+      --navy: #334264;
+      --navy-light: #4a5a7a;
+      --accent-yellow: #F5F35C;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --radius-pill: 30px;
+    }
+
+    html, body {
+      min-height: 100%;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* Header */
+    .splash-header {
+      width: 100%;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: #ffffff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--primary);
+      text-decoration: none;
+    }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      padding: 8px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      text-decoration: none;
+      display: inline-block;
+      transition: color 0.15s;
+    }
+    .btn-ghost:hover { color: var(--text); }
+    .btn-primary-sm {
+      background: var(--primary);
+      color: #ffffff;
+      border: none;
+      padding: 8px 18px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      text-decoration: none;
+      display: inline-block;
+      transition: background 0.15s;
+    }
+    .btn-primary-sm:hover { background: var(--primary-hover); }
+
+    /* Page */
+    .page { max-width: 880px; margin: 0 auto; padding: 48px 24px 80px; }
+
+    .page-hero {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .page-hero h1 {
+      font-size: 38px;
+      font-weight: 800;
+      letter-spacing: -1.2px;
+      color: var(--navy);
+      line-height: 1.15;
+    }
+    .page-hero h1 span { color: var(--primary); }
+    .page-hero p {
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-top: 12px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+    }
+
+    /* Feature sections */
+    .feature {
+      margin-bottom: 56px;
+      scroll-margin-top: 80px;
+    }
+    .feature-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+    .badge-free { background: rgba(65,174,159,0.1); color: var(--primary); }
+    .badge-advanced { background: rgba(51,66,100,0.1); color: var(--navy); }
+    .badge-coach { background: rgba(245,243,92,0.2); color: #8a7c00; }
+
+    .feature h2 {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--navy);
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .feature .subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .feature-content {
+      display: flex;
+      gap: 28px;
+      align-items: flex-start;
+    }
+    .feature-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .feature-visual {
+      flex: 0 0 380px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    }
+    .feature-visual.wide { flex: 0 0 100%; }
+
+    /* Mock UI panels */
+    .mock-panel {
+      background: var(--surface);
+      padding: 16px;
+      font-size: 12px;
+    }
+    .mock-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      background: var(--navy);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .mock-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 7px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .mock-row:nth-child(even) { background: #fff; }
+    .mock-highlight { color: var(--primary); font-weight: 700; }
+    .mock-warn { color: #d97706; font-weight: 700; }
+    .mock-danger { color: #ef4444; font-weight: 700; }
+
+    /* Science callout */
+    .science-box {
+      background: linear-gradient(135deg, #f0faf9 0%, #f8f9fa 100%);
+      border: 1px solid rgba(65,174,159,0.2);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-top: 16px;
+    }
+    .science-box h4 {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .science-box p, .science-box li {
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.7;
+    }
+    .science-box ul {
+      margin: 8px 0 0 16px;
+    }
+    .science-box .source {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 10px;
+      font-style: italic;
+    }
+
+    /* Effort scale visual */
+    .effort-scale {
+      display: flex;
+      gap: 2px;
+      margin: 12px 0;
+    }
+    .effort-block {
+      flex: 1;
+      text-align: center;
+      padding: 8px 4px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    /* CTA */
+    .cta-section {
+      text-align: center;
+      padding: 40px;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin-top: 48px;
+    }
+    .cta-section h3 {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--navy);
+      margin-bottom: 8px;
+    }
+    .cta-section p {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .cta-btn {
+      display: inline-block;
+      padding: 12px 32px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: var(--radius-pill);
+      font-size: 15px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .cta-btn:hover { background: var(--primary-hover); }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 48px 0;
+    }
+
+    @media (max-width: 750px) {
+      .page-hero h1 { font-size: 28px; }
+      .feature-content { flex-direction: column; }
+      .feature-visual { flex: 0 0 auto; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="splash-header">
+    <a class="logo" href="index.html">
+      <img src="assets/logo.png" alt="RunWell Clinic" style="height:80px;" />
+    </a>
+    <div class="header-right">
+      <a class="btn-ghost" href="index.html">Races</a>
+      <a class="btn-ghost" href="pricing.html">Pricing</a>
+      <a class="btn-ghost" href="features.html">Features</a>
+      <a class="btn-primary-sm" href="index.html">Get Started</a>
+    </div>
+  </header>
+
+  <div class="page">
+
+    <div class="page-hero">
+      <h1>Race smarter with <span>science-backed tools</span></h1>
+      <p>Every feature in Interactive Race Strategies is built on sports science research and real-world coaching experience. Here's what's under the hood.</p>
+    </div>
+
+    <!-- ═══ FEATURE 1: Elevation-Adjusted Pacing ═══ -->
+    <div class="feature" id="pacing">
+      <span class="feature-badge badge-free">Free</span>
+      <h2>Elevation-Adjusted Pacing</h2>
+      <p class="subtitle">Your pace plan automatically accounts for every hill on the course. No more blowing up on climbs or leaving time on the table on descents.</p>
+      <div class="feature-content">
+        <div class="feature-text">
+          <p style="font-size:14px;line-height:1.7;margin-bottom:12px;">When you generate splits, the algorithm analyzes the elevation change for each mile and adjusts your target pace accordingly. Uphill miles get more time; downhill miles get less, so your <strong>effort stays consistent</strong> even when the terrain doesn't.</p>
+          <div class="science-box">
+            <h4>📐 The Science</h4>
+            <p>Research shows that for every 100 feet of elevation gain per mile, runners slow by approximately <strong>10 seconds/mile</strong>. On downhill sections, pace improves by roughly the same amount, but with diminishing returns on steep descents due to braking forces and quad fatigue.</p>
+            <p style="margin-top:8px;">Our algorithm applies <strong>~5 seconds per 50 feet of gain</strong>, with symmetrical recovery on downhills. This keeps your perceived effort steady rather than your GPS pace, which is what actually determines whether you'll bonk at mile 20.</p>
+            <p class="source">Based on: Minetti et al. (2002) "Energy cost of walking and running at extreme uphill and downhill slopes"; Vernillo et al. (2017) "Biomechanics and physiology of uphill and downhill running"</p>
+          </div>
+        </div>
+        <div class="feature-visual">
+          <div class="mock-header"><span>Mile-by-Mile Splits (Boston)</span><span>Elev-Adjusted</span></div>
+          <div class="mock-row"><span>Mile 1</span><span>↓ 120′</span><span class="mock-highlight">7:42/mi</span></div>
+          <div class="mock-row"><span>Mile 8</span><span>↑ 85′</span><span class="mock-warn">8:18/mi</span></div>
+          <div class="mock-row"><span>Mile 16</span><span>↓ 140′</span><span class="mock-highlight">7:35/mi</span></div>
+          <div class="mock-row"><span>Mile 20 (Heartbreak)</span><span>↑ 180′</span><span class="mock-danger">8:38/mi</span></div>
+          <div class="mock-row"><span>Mile 26</span><span>↓ 90′</span><span class="mock-highlight">7:50/mi</span></div>
+          <div style="padding:10px 14px;font-size:11px;color:var(--text-muted);background:var(--surface);">Same effort throughout = faster finish than even pacing</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ═══ FEATURE 2: Weather Adjustments ═══ -->
+    <div class="feature" id="weather">
+      <span class="feature-badge badge-advanced">Advanced</span>
+      <h2>Real-Time Weather Adjustments</h2>
+      <p class="subtitle">Starting 7 days before your race, we pull the actual forecast for your course location and calculate exactly how much to adjust your pace.</p>
+      <div class="feature-content">
+        <div class="feature-text">
+          <p style="font-size:14px;line-height:1.7;margin-bottom:12px;">Heat, humidity, wind, and rain all impact marathon performance. Most runners ignore weather until race morning, and by then it's too late to adjust your goal. Our tool shows you the impact <strong>days in advance</strong> so you can set a realistic target.</p>
+          <div class="science-box">
+            <h4>🌡️ The Science: Temperature</h4>
+            <p>The optimal marathon temperature is <strong>45–55°F (7–13°C)</strong>. Performance degrades predictably above this range:</p>
+            <ul>
+              <li><strong>55–65°F:</strong> ~1 second/mile per degree over 55°F</li>
+              <li><strong>65–75°F:</strong> ~1.5 seconds/mile per degree (compounding heat stress)</li>
+              <li><strong>75°F+:</strong> ~2 seconds/mile per degree (significant dehydration risk)</li>
+              <li><strong>Below 35°F:</strong> ~0.8 seconds/mile per degree below 35°F (cold-induced muscle stiffness)</li>
+            </ul>
+            <p class="source">Based on: Ely et al. (2007) "Impact of weather on marathon-running performance"; El Helou et al. (2012) "Impact of environmental parameters on marathon running performance"</p>
+          </div>
+          <div class="science-box" style="margin-top:12px;">
+            <h4>💧 Humidity &amp; Wind</h4>
+            <p><strong>Humidity above 60%</strong> in warm conditions (>60°F) impairs evaporative cooling, adding 5–12 seconds/mile. <strong>Wind</strong> impacts at roughly 1 second/mile per 3 mph of headwind, assuming partial headwind exposure on a typical marathon course.</p>
+            <p style="margin-top:8px;">Rain below 50°F adds 2–5 seconds/mile due to wet clothing weight and reduced traction. Heavy rain adds 3–8 seconds/mile regardless of temperature.</p>
+            <p class="source">Based on: Vihma (2010) "Effects of weather on the performance of marathon runners"</p>
+          </div>
+        </div>
+        <div class="feature-visual">
+          <div class="mock-header"><span>🌦️ Weather Impact: Chicago 2026</span></div>
+          <div class="mock-panel">
+            <div style="display:flex;gap:8px;margin-bottom:10px;">
+              <div style="flex:1;background:#fff;border-radius:6px;padding:8px;text-align:center;border:1px solid var(--border);">
+                <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;">Temp</div>
+                <div style="font-size:18px;font-weight:800;color:var(--navy);">68°F</div>
+              </div>
+              <div style="flex:1;background:#fff;border-radius:6px;padding:8px;text-align:center;border:1px solid var(--border);">
+                <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;">Humidity</div>
+                <div style="font-size:18px;font-weight:800;color:var(--navy);">72%</div>
+              </div>
+              <div style="flex:1;background:#fff;border-radius:6px;padding:8px;text-align:center;border:1px solid var(--border);">
+                <div style="font-size:9px;color:var(--text-muted);text-transform:uppercase;">Wind</div>
+                <div style="font-size:18px;font-weight:800;color:var(--navy);">12 mph</div>
+              </div>
+            </div>
+            <div style="background:#fff;border-radius:6px;padding:10px;border:1px solid var(--border);">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:12px;color:var(--text-muted);">Total Pace Adjustment</span>
+                <span style="font-size:20px;font-weight:800;color:#d97706;">+0:24/mi</span>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Temp: +13s &middot; Humidity: +5s &middot; Wind: +4s &middot; Clear: +0s</div>
+              <div style="font-size:11px;color:#d97706;margin-top:4px;font-weight:600;">3:30 goal → adjusted to 3:40:22</div>
+            </div>
+          </div>
+          <div style="padding:8px 14px;font-size:11px;color:var(--text-muted);background:var(--surface);">Auto-populated from forecast 7 days before race day</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ═══ FEATURE 3: Nutrition Calculator ═══ -->
+    <div class="feature" id="nutrition">
+      <span class="feature-badge badge-advanced">Advanced</span>
+      <h2>Personalized Nutrition Strategy</h2>
+      <p class="subtitle">Select your exact fuel products, and we'll build a mile-by-mile fueling schedule that hits your carb targets, backed by sports science.</p>
+      <div class="feature-content">
+        <div class="feature-text">
+          <p style="font-size:14px;line-height:1.7;margin-bottom:12px;">The calculator factors in your body weight, expected finish time, and specific fuel products (GU, Maurten, Clif, candy, bananas, and 20+ other options) to generate a customizable intake schedule. Add a pre-race breakfast plan too.</p>
+          <div class="science-box">
+            <h4>🍊 The Science: Carbohydrate Intake</h4>
+            <p>Current evidence-based guidelines for endurance athletes (ACSM, ISSN, Jeukendrup 2014):</p>
+            <ul>
+              <li><strong>Events under 1 hour:</strong> No fueling needed (mouth rinse may help)</li>
+              <li><strong>1–2 hours:</strong> 30g carbs/hour</li>
+              <li><strong>2–3 hours:</strong> 60g carbs/hour (single carb source sufficient)</li>
+              <li><strong>3–4+ hours:</strong> 60–90g carbs/hour (multiple transportable carbs recommended, such as glucose + fructose)</li>
+            </ul>
+            <p style="margin-top:8px;">At higher intake rates (>60g/hr), using <strong>multiple transportable carbohydrates</strong> (e.g., maltodextrin + fructose, as in Maurten) allows greater absorption because glucose and fructose use different intestinal transporters (SGLT1 and GLUT5). This is why products like Maurten Gel 160 can deliver 40g per serving without GI distress.</p>
+            <p style="margin-top:8px;"><strong>Pre-race breakfast:</strong> 1–4g carbs per kg body weight, consumed 2–3 hours before the start. This tops off liver glycogen stores depleted overnight.</p>
+            <p class="source">Based on: Jeukendrup (2014) "A step towards personalized sports nutrition"; Thomas et al. (2016) ACSM Position Stand; Kerksick et al. (2017) ISSN Position Stand</p>
+          </div>
+        </div>
+        <div class="feature-visual">
+          <div class="mock-header"><span>🍊 Fueling Schedule</span><span>3:45 goal</span></div>
+          <div class="mock-row"><span>Mile 4</span><span>GU Energy Gel</span><span>100 cal, 22g</span></div>
+          <div class="mock-row"><span>Mile 8</span><span>Maurten Gel 100</span><span>100 cal, 25g</span></div>
+          <div class="mock-row"><span>Mile 12</span><span>GU Energy Gel</span><span>100 cal, 22g</span></div>
+          <div class="mock-row"><span>Mile 16</span><span>Maurten Gel 100</span><span>100 cal, 25g</span></div>
+          <div class="mock-row"><span>Mile 20</span><span>GU Energy Gel</span><span>100 cal, 22g</span></div>
+          <div class="mock-row"><span>Mile 23</span><span>Maurten Gel 100</span><span>100 cal, 25g</span></div>
+          <div class="mock-panel" style="padding:10px 14px;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;">
+              <span>Total: <strong>600 cal, 141g carbs</strong></span>
+              <span style="color:var(--primary);font-weight:700;">70g/hr ✓ on target</span>
+            </div>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Rec: 263 cal/hr × 3.75 hrs = 986 cal total</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ═══ FEATURE 4: Effort-Based Pacing (Coach) ═══ -->
+    <div class="feature" id="effort">
+      <span class="feature-badge badge-coach">Coach</span>
+      <h2>Effort-Based Pacing (0–10 Scale)</h2>
+      <p class="subtitle">Coaches can assign a perceived effort level per mile, and the system automatically recommends a corresponding pace to keep athletes in the right zone.</p>
+      <div class="feature-content">
+        <div class="feature-text">
+          <p style="font-size:14px;line-height:1.7;margin-bottom:12px;">The effort scale maps directly to pace: <strong>5/10 = your average goal pace</strong> (the exact pace needed to hit your target finish time). Each point up or down adjusts pace by ~2% of your average, a meaningful but manageable shift.</p>
+
+          <div class="effort-scale">
+            <div class="effort-block" style="background:#41ae9f;">1</div>
+            <div class="effort-block" style="background:#41ae9f;">2</div>
+            <div class="effort-block" style="background:#41ae9f;">3</div>
+            <div class="effort-block" style="background:#d97706;">4</div>
+            <div class="effort-block" style="background:#d97706;">5</div>
+            <div class="effort-block" style="background:#ea580c;">6</div>
+            <div class="effort-block" style="background:#ea580c;">7</div>
+            <div class="effort-block" style="background:#ef4444;">8</div>
+            <div class="effort-block" style="background:#ef4444;">9</div>
+            <div class="effort-block" style="background:#ef4444;">10</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:-4px;margin-bottom:16px;">
+            <span>Easy / Recovery</span>
+            <span>Goal Pace</span>
+            <span>Threshold</span>
+            <span>Max</span>
+          </div>
+
+          <div class="science-box">
+            <h4>💪 The Science: RPE to Pace</h4>
+            <p>The <strong>Rating of Perceived Exertion (RPE)</strong> scale has been validated for decades as a reliable proxy for physiological intensity. Our 0–10 mapping uses a <strong>linear 2% pace adjustment per effort point</strong>:</p>
+            <ul>
+              <li><strong>Effort 5 (goal pace):</strong> Your average split pace. Run every mile at this and you hit your goal exactly</li>
+              <li><strong>Effort 6 (+1):</strong> 2% faster, ideal for downhill miles or the final push</li>
+              <li><strong>Effort 3 (−2):</strong> 4% slower, ideal for conservative starts or big climbs</li>
+              <li><strong>Effort 8 (+3):</strong> 6% faster, threshold territory, used sparingly</li>
+            </ul>
+            <p style="margin-top:8px;">For a runner with a 3:30 goal (8:00/mi avg), effort 6 = ~7:50/mi and effort 4 = ~8:10/mi. These small adjustments compound over 26.2 miles, and a coach can use them to sculpt negative splits, ease athletes through tough sections, or plan a strong finish.</p>
+            <p class="source">Based on: Borg (1982) "Psychophysical bases of perceived exertion"; Foster et al. (2001) "A new approach to monitoring exercise training"</p>
+          </div>
+        </div>
+        <div class="feature-visual">
+          <div class="mock-header"><span>Coach View: Goal A</span><span>3:30:00</span></div>
+          <div class="mock-row"><span>Miles 1–3</span><span style="color:#41ae9f;font-weight:700;">Effort 3</span><span>8:19/mi</span></div>
+          <div class="mock-row"><span>Miles 4–10</span><span style="color:#d97706;font-weight:700;">Effort 5</span><span>8:00/mi</span></div>
+          <div class="mock-row"><span>Miles 11–18</span><span style="color:#d97706;font-weight:700;">Effort 5</span><span>8:00/mi</span></div>
+          <div class="mock-row"><span>Miles 19–22</span><span style="color:#ea580c;font-weight:700;">Effort 6</span><span>7:50/mi</span></div>
+          <div class="mock-row"><span>Miles 23–26</span><span style="color:#ef4444;font-weight:700;">Effort 7</span><span>7:41/mi</span></div>
+          <div class="mock-panel" style="padding:10px 14px;">
+            <div style="font-size:11px;color:var(--text-muted);">Negative split strategy with conservative start. Expected finish: <strong style="color:var(--navy);">3:28:14</strong></div>
+          </div>
+          <div style="padding:8px 14px;font-size:11px;background:var(--surface);border-top:1px solid var(--border);">
+            <span style="color:var(--text-muted);">Toggle:</span>
+            <span style="background:#fff;padding:3px 10px;border-radius:4px;font-weight:600;color:var(--navy);font-size:10px;box-shadow:0 1px 3px rgba(0,0,0,0.08);">Goal A</span>
+            <span style="padding:3px 10px;font-size:10px;color:var(--text-muted);">Goal B</span>
+            <span style="font-size:10px;color:var(--text-muted);margin-left:8px;">Create two race plans per athlete</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ═══ FEATURE 5: Weather Trends ═══ -->
+    <div class="feature" id="trends">
+      <span class="feature-badge badge-free">Free</span>
+      <h2>10-Year Weather Trends</h2>
+      <p class="subtitle">See exactly what weather conditions looked like on race day for the last decade so you can train for the likely conditions, not just hope for the best.</p>
+      <div class="feature-content">
+        <div class="feature-text">
+          <p style="font-size:14px;line-height:1.7;">We pull real historical weather data from the <strong>Open-Meteo Archive API</strong> for your race's exact location and date. You'll see average highs, lows, wind, humidity, and rain probability, plus drill into each individual year for details.</p>
+          <p style="font-size:14px;line-height:1.7;margin-top:8px;">This helps you make informed gear decisions (singlet vs. arm sleeves?), practice in similar conditions, and set realistic goals months before the race.</p>
+        </div>
+        <div class="feature-visual">
+          <div class="mock-header"><span>Weather Trends: Boston Marathon</span></div>
+          <div class="mock-panel">
+            <div style="display:flex;gap:6px;margin-bottom:8px;">
+              <div style="flex:1;text-align:center;"><div style="font-size:9px;color:var(--text-muted);">AVG HIGH</div><div style="font-size:16px;font-weight:800;color:var(--navy);">58°F</div></div>
+              <div style="flex:1;text-align:center;"><div style="font-size:9px;color:var(--text-muted);">AVG LOW</div><div style="font-size:16px;font-weight:800;color:var(--navy);">42°F</div></div>
+              <div style="flex:1;text-align:center;"><div style="font-size:9px;color:var(--text-muted);">AVG WIND</div><div style="font-size:16px;font-weight:800;color:var(--navy);">14 mph</div></div>
+              <div style="flex:1;text-align:center;"><div style="font-size:9px;color:var(--text-muted);">RAIN</div><div style="font-size:16px;font-weight:800;color:var(--navy);">30%</div></div>
+            </div>
+            <div style="font-size:10px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:6px;">Click any year for details:</div>
+            <div class="mock-row"><span style="font-weight:700;">2025</span><span>62°/44°F</span><span>☀️</span><span>11 mph</span></div>
+            <div class="mock-row"><span style="font-weight:700;">2024</span><span>71°/52°F</span><span>☀️</span><span>16 mph</span></div>
+            <div class="mock-row"><span style="font-weight:700;">2023</span><span>50°/38°F</span><span>🌧</span><span>18 mph</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ═══ FEATURE 6: Fuel Tracking ═══ -->
+    <div class="feature" id="fuel">
+      <span class="feature-badge badge-free">Free</span>
+      <h2>On-Course Fuel Tracking</h2>
+      <p class="subtitle">Mark exactly which miles you'll take nutrition with a single click. Fuel stops appear on the course map, in your splits table, and on your exported race plan.</p>
+      <div class="feature-content">
+        <div class="feature-text">
+          <p style="font-size:14px;line-height:1.7;">Click the <strong>+</strong> button in the Fuel column of your splits table to toggle a fuel stop at any mile. The 🍊 icon appears on the course map at that location, and carries through to your PDF export.</p>
+          <p style="font-size:14px;line-height:1.7;margin-top:8px;">Advanced users can auto-populate fuel stops from the Nutrition Calculator, which also adds detailed product/calorie info to each marker.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- CTA -->
+    <div class="cta-section">
+      <h3>Ready to race smarter?</h3>
+      <p>Start planning your next race with science-backed tools, for free.</p>
+      <a class="cta-btn" href="index.html">Explore Races</a>
+      <div style="margin-top:12px;">
+        <a href="pricing.html" style="color:var(--primary);font-size:13px;font-weight:600;text-decoration:none;">View pricing for Advanced &amp; Coach features &rarr;</a>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

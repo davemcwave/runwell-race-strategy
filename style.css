@@ -5,7 +5,7 @@
 }
 
 :root {
-  /* RunWell Clinic branding — light theme */
+  /* RunWell Clinic branding - light theme */
   --bg: #ffffff;
   --surface: #f8f9fa;
   --surface-2: #f0f2f4;
@@ -127,11 +127,19 @@ nav {
   border-color: var(--primary);
 }
 
-/* Main layout */
+/* Main layout - two-column: left (map + elevation) | right (race plan) */
 main {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: calc(100vh - 56px);
+}
+
+#left-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 300px;
+  overflow: hidden;
 }
 
 #map-container {
@@ -191,16 +199,7 @@ main {
   font-weight: 600;
 }
 
-/* Bottom panel */
-#bottom-panel {
-  display: flex;
-  height: 260px;
-  min-height: 80px;
-  max-height: 80vh;
-  border-top: none;
-  background: #ffffff;
-  position: relative;
-}
+/* Elevation panel (below map in left column) */
 
 /* ─── Resize handles ──────────────────────────────── */
 
@@ -242,6 +241,7 @@ main {
   position: relative;
   z-index: 10;
   transition: background 0.15s;
+  align-self: stretch;
 }
 
 .resize-handle-v::after {
@@ -268,20 +268,28 @@ body.resizing { user-select: none; cursor: ns-resize; }
 body.resizing-v { user-select: none; cursor: ew-resize; }
 
 #elevation-panel {
-  flex: 2;
+  height: 220px;
+  min-height: 80px;
+  max-height: 50vh;
   padding: 14px 20px;
-  min-width: 200px;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  background: #ffffff;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 #splits-panel {
-  flex: 1;
+  width: 440px;
+  min-width: 320px;
+  max-width: 55vw;
   padding: 14px 20px;
   display: flex;
   flex-direction: column;
-  min-width: 180px;
+  background: #ffffff;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .panel-header {
@@ -295,6 +303,116 @@ body.resizing-v { user-select: none; cursor: ew-resize; }
   font-size: 14px;
   font-weight: 700;
   color: var(--navy);
+}
+
+/* Effort column - hidden by default, shown by JS for Coach plan */
+.effort-col { display: none !important; }
+.effort-col.show { display: table-cell !important; }
+
+
+/* Bottom panel tabs (elevation / weather) */
+.bottom-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+.bottom-tab {
+  background: transparent;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.bottom-tab:hover { color: var(--text); }
+.bottom-tab.active {
+  background: #fff;
+  color: var(--navy);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* Weather panel */
+/* Weather year list (accordion) */
+.weather-year-list {
+  padding: 2px 0;
+}
+.weather-year-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--surface-2);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.1s;
+  border-radius: var(--radius-sm);
+}
+.weather-year-row:hover { background: var(--surface); }
+.weather-year-row.expanded { background: var(--surface); }
+.wyr-year { font-weight: 700; color: var(--navy); min-width: 36px; }
+.wyr-temp { font-weight: 600; color: var(--text); min-width: 80px; }
+.wyr-icon { font-size: 14px; }
+.wyr-wind { color: var(--text-muted); font-size: 11px; flex: 1; }
+.wyr-expand { color: var(--text-muted); font-size: 10px; margin-left: auto; }
+
+.weather-year-detail {
+  padding: 6px 8px 10px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+.wyd-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.wyd-item {
+  text-align: center;
+}
+.wyd-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  display: block;
+}
+.wyd-val {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+  display: block;
+  margin-top: 1px;
+}
+.weather-summary {
+  display: flex;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.weather-summary-stat {
+  text-align: center;
+  flex: 1;
+}
+.weather-summary-stat .ws-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+.weather-summary-stat .ws-value {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--navy);
+  margin-top: 2px;
 }
 
 .elevation-stats {
@@ -760,13 +878,13 @@ body.resizing-v { user-select: none; cursor: ew-resize; }
 .weather-card-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
 .weather-card-value { font-size: 14px; font-weight: 700; color: var(--text); }
 .weather-card.impact-none .weather-card-value { color: var(--primary); }
-.weather-card.impact-low .weather-card-value { color: #b8a300; }
+.weather-card.impact-low .weather-card-value { color: #d97706; }
 .weather-card.impact-medium .weather-card-value { color: var(--accent-orange); }
 .weather-card.impact-high .weather-card-value { color: var(--accent-red); }
 
 .weather-summary { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; }
 .weather-summary-total { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
-.weather-summary-total strong { font-size: 20px; color: var(--accent-orange); }
+.weather-summary-total strong { font-size: 20px; color: #d97706; }
 .weather-summary-note { margin-top: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
 
 /* ─── Reviews section ─────────────────────────────── */
@@ -885,14 +1003,16 @@ body.resizing-v { user-select: none; cursor: ew-resize; }
 
 /* Responsive */
 @media (max-width: 900px) {
-  #bottom-panel {
+  main {
     flex-direction: column;
-    height: auto;
-    max-height: 50vh;
   }
-  #elevation-panel { min-height: 160px; }
-  .resize-handle-v { width: 100%; height: 6px; cursor: ns-resize; }
-  #splits-panel { max-width: none; max-height: 200px; }
+  #left-column {
+    min-width: 0;
+    flex: 1;
+  }
+  #elevation-panel { min-height: 140px; height: 180px; }
+  .resize-handle-v { width: 100%; height: 6px; cursor: ns-resize; align-self: auto; }
+  #splits-panel { width: auto; max-width: none; max-height: 40vh; border-left: none; border-top: 1px solid var(--border); }
   nav { gap: 4px; }
   .btn-secondary, .btn-primary { padding: 6px 10px; font-size: 11px; }
 }

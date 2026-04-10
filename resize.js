@@ -1,7 +1,7 @@
 /**
  * Resizable panels for the planner page.
- * - Horizontal handle: resize bottom panel height (map vs bottom)
- * - Vertical handle: resize elevation vs splits width
+ * - Horizontal handle: resize elevation panel height (map vs elevation in left column)
+ * - Vertical handle: resize splits panel width (left column vs right column)
  */
 (function () {
   "use strict";
@@ -19,29 +19,25 @@
   function init() {
     const resizeH = document.getElementById("resize-h");
     const resizeV = document.getElementById("resize-v");
-    const bottomPanel = document.getElementById("bottom-panel");
     const elevPanel = document.getElementById("elevation-panel");
     const splitsPanel = document.getElementById("splits-panel");
     const mainContent = document.getElementById("main-content");
 
-    if (!resizeH || !bottomPanel) return;
+    if (!resizeH || !elevPanel) return;
 
     // Restore saved sizes
     const saved = loadSizes();
-    if (saved.bottomHeight) bottomPanel.style.height = saved.bottomHeight + "px";
-    if (saved.elevFlex && saved.splitsFlex) {
-      elevPanel.style.flex = "0 0 " + saved.elevFlex + "px";
-      splitsPanel.style.flex = "0 0 " + saved.splitsFlex + "px";
-    }
+    if (saved.elevHeight) elevPanel.style.height = saved.elevHeight + "px";
+    if (saved.splitsWidth) splitsPanel.style.width = saved.splitsWidth + "px";
 
-    // ─── Horizontal resize (bottom panel height) ────────────────
+    // ─── Horizontal resize (elevation panel height) ─────────────
 
     let startY, startHeight;
 
     resizeH.addEventListener("mousedown", (e) => {
       e.preventDefault();
       startY = e.clientY;
-      startHeight = bottomPanel.offsetHeight;
+      startHeight = elevPanel.offsetHeight;
       document.body.classList.add("resizing");
       resizeH.classList.add("dragging");
       document.addEventListener("mousemove", onMouseMoveH);
@@ -50,9 +46,8 @@
 
     function onMouseMoveH(e) {
       const delta = startY - e.clientY;
-      const newHeight = Math.max(80, Math.min(window.innerHeight * 0.8, startHeight + delta));
-      bottomPanel.style.height = newHeight + "px";
-      // Trigger chart resize
+      const newHeight = Math.max(80, Math.min(window.innerHeight * 0.5, startHeight + delta));
+      elevPanel.style.height = newHeight + "px";
       window.dispatchEvent(new Event("resize"));
     }
 
@@ -61,24 +56,22 @@
       resizeH.classList.remove("dragging");
       document.removeEventListener("mousemove", onMouseMoveH);
       document.removeEventListener("mouseup", onMouseUpH);
-      // Save & trigger final resize for map/chart
       const sizes = loadSizes();
-      sizes.bottomHeight = bottomPanel.offsetHeight;
+      sizes.elevHeight = elevPanel.offsetHeight;
       saveSizes(sizes);
       window.dispatchEvent(new Event("resize"));
     }
 
-    // ─── Vertical resize (elevation vs splits width) ────────────
+    // ─── Vertical resize (splits panel width) ───────────────────
 
-    if (!resizeV) return;
+    if (!resizeV || !splitsPanel) return;
 
-    let startX, startElevW, startSplitsW;
+    let startX, startWidth;
 
     resizeV.addEventListener("mousedown", (e) => {
       e.preventDefault();
       startX = e.clientX;
-      startElevW = elevPanel.offsetWidth;
-      startSplitsW = splitsPanel.offsetWidth;
+      startWidth = splitsPanel.offsetWidth;
       document.body.classList.add("resizing-v");
       resizeV.classList.add("dragging");
       document.addEventListener("mousemove", onMouseMoveV);
@@ -86,13 +79,9 @@
     });
 
     function onMouseMoveV(e) {
-      const delta = e.clientX - startX;
-      const totalW = startElevW + startSplitsW;
-      const newElevW = Math.max(200, Math.min(totalW - 180, startElevW + delta));
-      const newSplitsW = totalW - newElevW;
-
-      elevPanel.style.flex = "0 0 " + newElevW + "px";
-      splitsPanel.style.flex = "0 0 " + newSplitsW + "px";
+      const delta = startX - e.clientX;
+      const newWidth = Math.max(260, Math.min(window.innerWidth * 0.5, startWidth + delta));
+      splitsPanel.style.width = newWidth + "px";
       window.dispatchEvent(new Event("resize"));
     }
 
@@ -102,8 +91,7 @@
       document.removeEventListener("mousemove", onMouseMoveV);
       document.removeEventListener("mouseup", onMouseUpV);
       const sizes = loadSizes();
-      sizes.elevFlex = elevPanel.offsetWidth;
-      sizes.splitsFlex = splitsPanel.offsetWidth;
+      sizes.splitsWidth = splitsPanel.offsetWidth;
       saveSizes(sizes);
       window.dispatchEvent(new Event("resize"));
     }
@@ -113,7 +101,7 @@
     resizeH.addEventListener("touchstart", (e) => {
       const touch = e.touches[0];
       startY = touch.clientY;
-      startHeight = bottomPanel.offsetHeight;
+      startHeight = elevPanel.offsetHeight;
       resizeH.classList.add("dragging");
       document.addEventListener("touchmove", onTouchMoveH, { passive: false });
       document.addEventListener("touchend", onTouchEndH);
@@ -122,8 +110,8 @@
     function onTouchMoveH(e) {
       e.preventDefault();
       const delta = startY - e.touches[0].clientY;
-      const newHeight = Math.max(80, Math.min(window.innerHeight * 0.8, startHeight + delta));
-      bottomPanel.style.height = newHeight + "px";
+      const newHeight = Math.max(80, Math.min(window.innerHeight * 0.5, startHeight + delta));
+      elevPanel.style.height = newHeight + "px";
       window.dispatchEvent(new Event("resize"));
     }
 
@@ -132,7 +120,7 @@
       document.removeEventListener("touchmove", onTouchMoveH);
       document.removeEventListener("touchend", onTouchEndH);
       const sizes = loadSizes();
-      sizes.bottomHeight = bottomPanel.offsetHeight;
+      sizes.elevHeight = elevPanel.offsetHeight;
       saveSizes(sizes);
       window.dispatchEvent(new Event("resize"));
     }
@@ -140,8 +128,7 @@
     resizeV.addEventListener("touchstart", (e) => {
       const touch = e.touches[0];
       startX = touch.clientX;
-      startElevW = elevPanel.offsetWidth;
-      startSplitsW = splitsPanel.offsetWidth;
+      startWidth = splitsPanel.offsetWidth;
       resizeV.classList.add("dragging");
       document.addEventListener("touchmove", onTouchMoveV, { passive: false });
       document.addEventListener("touchend", onTouchEndV);
@@ -149,11 +136,9 @@
 
     function onTouchMoveV(e) {
       e.preventDefault();
-      const delta = e.touches[0].clientX - startX;
-      const totalW = startElevW + startSplitsW;
-      const newElevW = Math.max(200, Math.min(totalW - 180, startElevW + delta));
-      elevPanel.style.flex = "0 0 " + newElevW + "px";
-      splitsPanel.style.flex = "0 0 " + (totalW - newElevW) + "px";
+      const delta = startX - e.touches[0].clientX;
+      const newWidth = Math.max(260, Math.min(window.innerWidth * 0.5, startWidth + delta));
+      splitsPanel.style.width = newWidth + "px";
       window.dispatchEvent(new Event("resize"));
     }
 
@@ -162,8 +147,7 @@
       document.removeEventListener("touchmove", onTouchMoveV);
       document.removeEventListener("touchend", onTouchEndV);
       const sizes = loadSizes();
-      sizes.elevFlex = elevPanel.offsetWidth;
-      sizes.splitsFlex = splitsPanel.offsetWidth;
+      sizes.splitsWidth = splitsPanel.offsetWidth;
       saveSizes(sizes);
       window.dispatchEvent(new Event("resize"));
     }
