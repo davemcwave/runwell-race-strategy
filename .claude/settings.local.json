@@ -154,7 +154,13 @@
       "Bash(curl -sL \"https://goandrace.com/gpx/2025/05/25/gpx_20250525_id10305_race1_20250516155604.gpx\" -o ottawa-marathon.gpx)",
       "Bash(curl -sL \"https://goandrace.com/gpx/2025/05/04/gpx_20250504_id10291_race1_20250428223701.gpx\" -o vancouver-marathon.gpx)",
       "Bash(curl -sL \"https://goandrace.com/gpx/2025/05/25/gpx_20250525_id10304_race1_20250515171335.gpx\" -o calgary-marathon.gpx)",
-      "Bash(curl -sL \"https://goandrace.com/gpx/2025/06/22/gpx_20250622_id10343_race1_20250616132927.gpx\" -o vancouver-half.gpx)"
+      "Bash(curl -sL \"https://goandrace.com/gpx/2025/06/22/gpx_20250622_id10343_race1_20250616132927.gpx\" -o vancouver-half.gpx)",
+      "Bash(curl -sL \"https://www.goandrace.com/en/map/2026/eugene-marathon-course-map-1.php\" -o /tmp/em1.html -w \"%{http_code}\\\\n\")",
+      "Bash(curl -sL \"https://www.goandrace.com/en/map/2025/eugene-marathon-course-map-1.php\" -o /tmp/em2.html -w \"%{http_code}\\\\n\")",
+      "Bash(curl -sL \"https://www.goandrace.com/en/running-race-calendar.php?country=USA&q=eugene\" -o /tmp/cal.html -w \"%{http_code}\\\\n\")",
+      "WebFetch(domain:www.eugenemarathon.com)",
+      "Bash(curl -sL \"https://www.eugenemarathon.com/marathon\")",
+      "Bash(curl -sL \"https://www.google.com/maps/d/kml?mid=1cCYGFEcm5bey98baWv-3oSYnAhkUuP4&forcekml=1\" -o /tmp/eugene.kml)"
     ]
   }
 }

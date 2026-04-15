@@ -782,6 +782,19 @@ const RACES = [
   },
 
   {
+    id: "eugene",
+    name: "Eugene Marathon",
+    location: "Eugene, OR, USA",
+    distance: "42.195 km",
+    schedule: { month: 4, week: "last", day: 0 }, // last Sunday of April
+    file: "gpx/eugene-marathon.gpx",
+    tags: ["marathon", "usa", "fast", "bq"],
+    emoji: "🦆",
+    continent: "north-america",
+    lat: 44.0521,
+    lng: -123.0868,
+  },
+  {
     id: "flyingpig",
     name: "Flying Pig Marathon",
     location: "Cincinnati, OH, USA",
