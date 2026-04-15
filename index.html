@@ -644,6 +644,7 @@
 
     <!-- User dropdown -->
     <div class="user-dropdown" id="user-dropdown" style="display:none;">
+      <a href="#" id="dropdown-saved-plans">Saved Plans</a>
       <a href="#" id="dropdown-upgrade">Upgrade to Pro</a>
       <button class="danger" id="dropdown-logout">Log Out</button>
     </div>
@@ -732,6 +733,18 @@
       </div>
       <div class="modal-actions">
         <button class="btn-full secondary" onclick="document.getElementById('support-modal').style.display='none'">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Saved Plans Modal -->
+  <div id="saved-plans-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:500px;max-height:80vh;display:flex;flex-direction:column;">
+      <h3>Saved Plans</h3>
+      <p class="modal-subtitle">Your saved race plans.</p>
+      <div id="saved-plans-list" style="flex:1;overflow-y:auto;"></div>
+      <div class="modal-actions">
+        <button class="btn-full secondary" onclick="document.getElementById('saved-plans-modal').style.display='none'">Close</button>
       </div>
     </div>
   </div>
@@ -989,6 +1002,42 @@
         setUser(user);
         closeAllModals();
         updateAuthUI();
+      });
+
+      // Saved Plans
+      document.getElementById("dropdown-saved-plans").addEventListener("click", (e) => {
+        e.preventDefault();
+        document.getElementById("user-dropdown").style.display = "none";
+        const plans = (() => { try { return JSON.parse(localStorage.getItem("runwell-saved-plans") || "[]"); } catch { return []; } })();
+        const list = document.getElementById("saved-plans-list");
+        if (plans.length === 0) {
+          list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No saved plans yet.</div>';
+        } else {
+          list.innerHTML = plans.sort((a, b) => new Date(b.date) - new Date(a.date)).map((p, i) => {
+            const goalStr = p.goalTime ? (() => { const h = Math.floor(p.goalTime/3600); const m = Math.floor((p.goalTime%3600)/60); const s = Math.round(p.goalTime%60); return h + ":" + String(m).padStart(2,"0") + ":" + String(s).padStart(2,"0"); })() : "No goal";
+            const dateStr = new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border);">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.name}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${goalStr} &middot; ${p.splits || 0} splits &middot; ${dateStr}</div>
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0;margin-left:10px;">
+                <a href="planner.html?race=${p.raceId}" style="padding:5px 12px;background:var(--primary);color:#fff;border-radius:var(--radius-pill);font-size:11px;font-weight:600;text-decoration:none;">Open</a>
+                <button class="sp-del" data-id="${p.id}" style="padding:5px 8px;background:none;border:1px solid var(--border);border-radius:var(--radius-pill);font-size:11px;cursor:pointer;font-family:inherit;color:var(--text-muted);">×</button>
+              </div>
+            </div>`;
+          }).join("");
+          list.querySelectorAll(".sp-del").forEach(btn => {
+            btn.addEventListener("click", () => {
+              const ps = (() => { try { return JSON.parse(localStorage.getItem("runwell-saved-plans") || "[]"); } catch { return []; } })();
+              const idx = ps.findIndex(p => p.id === btn.dataset.id);
+              if (idx >= 0) ps.splice(idx, 1);
+              localStorage.setItem("runwell-saved-plans", JSON.stringify(ps));
+              document.getElementById("dropdown-saved-plans").click(); // re-render
+            });
+          });
+        }
+        document.getElementById("saved-plans-modal").style.display = "flex";
       });
 
       // Upgrade

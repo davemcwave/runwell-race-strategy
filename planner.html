@@ -25,17 +25,33 @@
           </select>
           <button id="athlete-delete-btn" title="Remove athlete" style="background:transparent;border:none;color:var(--text-muted);font-size:14px;cursor:pointer;padding:2px 4px;line-height:1;border-radius:4px;transition:color 0.15s;display:none;">&#x2715;</button>
           <div style="width:1px;height:18px;background:var(--border);margin:0 2px;"></div>
-          <button id="athlete-add-btn" style="background:var(--primary);color:#fff;border:none;padding:4px 10px;border-radius:var(--radius-pill);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;">+ Add</button>
+          <button id="athlete-add-btn" style="background:var(--primary);color:#fff;border:none;padding:4px 10px;border-radius:var(--radius-pill);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;">+ Add Athlete</button>
         </div>
       </div>
     </div>
     <nav>
-      <a href="index.html" class="btn-secondary" style="text-decoration:none;">&#8592; Change Race</a>
-      <button class="btn-secondary btn-pro" id="btn-race-history">📊 Race History</button>
+      <a href="#" class="btn-secondary" style="text-decoration:none;" id="btn-change-race">&#8592; Change Race</a>
       <button class="btn-secondary btn-pro" id="btn-nutrition">🍊 Nutrition</button>
       <button class="btn-secondary btn-pro" id="btn-weather">🌦️ Weather</button>
+      <button class="btn-secondary" id="btn-walk-run">🚶 Walk/Run</button>
       <button class="btn-secondary" id="btn-pace-planner">Pace Planner</button>
-      <button class="btn-primary" id="btn-export">Export Plan</button>
+      <button class="btn-secondary" id="btn-export">Export Plan</button>
+
+      <!-- Logged out: Log In button -->
+      <div id="planner-auth-logged-out">
+        <button class="btn-primary" id="planner-login-btn" style="margin-left:4px;">Log In</button>
+      </div>
+
+      <!-- Logged in: Account icon with dropdown -->
+      <div id="planner-auth-logged-in" style="display:none;position:relative;margin-left:4px;">
+        <div id="planner-user-toggle" style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;cursor:pointer;user-select:none;" title="Account"></div>
+        <div id="planner-user-dropdown" style="display:none;position:absolute;top:40px;right:0;background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:6px;min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,0.12);z-index:1500;">
+          <div id="planner-user-name" style="padding:8px 14px;font-size:12px;font-weight:600;color:var(--navy);border-bottom:1px solid var(--border);margin-bottom:4px;"></div>
+          <button id="planner-saved-plans" style="display:block;width:100%;text-align:left;padding:8px 14px;border-radius:var(--radius-pill);font-size:13px;font-family:inherit;color:var(--text);background:transparent;border:none;cursor:pointer;">Saved Plans</button>
+          <a href="pricing.html" style="display:block;width:100%;text-align:left;padding:8px 14px;border-radius:var(--radius-pill);font-size:13px;font-family:inherit;color:var(--text);background:transparent;border:none;cursor:pointer;text-decoration:none;">Upgrade Plan</a>
+          <button id="planner-logout" style="display:block;width:100%;text-align:left;padding:8px 14px;border-radius:var(--radius-pill);font-size:13px;font-family:inherit;color:#f87171;background:transparent;border:none;cursor:pointer;">Log Out</button>
+        </div>
+      </div>
     </nav>
   </header>
 
@@ -64,7 +80,6 @@
           <div class="bottom-tabs">
             <button class="bottom-tab active" data-bottom-tab="elevation">Elevation Profile</button>
             <button class="bottom-tab" data-bottom-tab="weather">Weather Trends</button>
-            <button class="bottom-tab" data-bottom-tab="history">Race History</button>
           </div>
           <div class="elevation-stats" id="elevation-stats">
             <span id="stat-gain">&#9650; 0 ft gain</span>
@@ -80,9 +95,6 @@
             Loading historical weather data...
           </div>
           <div id="weather-content" style="display:none;"></div>
-        </div>
-        <div id="history-inline-panel" style="display:none;overflow-y:auto;flex:1;padding:8px 4px;">
-          <div id="history-inline-content"></div>
         </div>
       </div>
     </div>
@@ -118,8 +130,19 @@
           <div id="splits-view-toggle" style="display:flex;align-items:center;justify-content:flex-end;margin-bottom:6px;">
             <div style="display:flex;background:var(--surface-2);border-radius:var(--radius-sm);padding:2px;gap:2px;">
               <button id="view-btn-mile" onclick="window._switchSplitsView('mile')" style="padding:4px 10px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,0.08);transition:all 0.15s;">Per Mile</button>
+              <button id="view-btn-km" onclick="window._switchSplitsView('km')" style="padding:4px 10px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:transparent;color:var(--text-muted);transition:all 0.15s;">Per KM</button>
               <button id="view-btn-segment" onclick="window._switchSplitsView('segment')" style="padding:4px 10px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:transparent;color:var(--text-muted);transition:all 0.15s;">Segments</button>
             </div>
+          </div>
+          <div id="col-filter-bar" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">
+            <span style="font-size:10px;color:var(--text-muted);font-weight:500;align-self:center;margin-right:2px;">Show:</span>
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text-muted);cursor:pointer;user-select:none;"><input type="checkbox" class="col-check" data-col="elev" checked style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer;" />Elev</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text-muted);cursor:pointer;user-select:none;"><input type="checkbox" class="col-check" data-col="pace" checked style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer;" />Pace</label>
+            <label class="col-runpace" style="display:none;align-items:center;gap:3px;font-size:10px;color:var(--text-muted);cursor:pointer;user-select:none;"><input type="checkbox" class="col-check" data-col="runpace" checked style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer;" />Run</label>
+            <label class="col-walkpace" style="display:none;align-items:center;gap:3px;font-size:10px;color:var(--text-muted);cursor:pointer;user-select:none;"><input type="checkbox" class="col-check" data-col="walkpace" checked style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer;" />Walk</label>
+            <label class="effort-col" style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text-muted);cursor:pointer;user-select:none;"><input type="checkbox" class="col-check" data-col="effort" checked style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer;" />Effort</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text-muted);cursor:pointer;user-select:none;"><input type="checkbox" class="col-check" data-col="cumul" checked style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer;" />Cumul.</label>
+            <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--text-muted);cursor:pointer;user-select:none;"><input type="checkbox" class="col-check" data-col="fuel" checked style="width:12px;height:12px;accent-color:var(--primary);cursor:pointer;" />Fuel</label>
           </div>
           <div id="splits-table-wrapper">
             <table id="splits-table">
@@ -128,6 +151,8 @@
                   <th>Mile</th>
                   <th class="col-elev">Elev</th>
                   <th class="col-pace">Pace</th>
+                  <th class="col-runpace" style="display:none;">Run</th>
+                  <th class="col-walkpace" style="display:none;">Walk</th>
                   <th class="effort-col col-effort">Effort</th>
                   <th class="col-cumul">Cumul.</th>
                   <th class="tod-col" style="display:none;">Clock</th>
@@ -137,7 +162,27 @@
               <tbody id="splits-table-body"></tbody>
             </table>
           </div>
+          <div id="km-table-wrapper" style="display:none;overflow-y:auto;flex:1;min-height:0;">
+            <table id="km-splits-table" style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead style="position:sticky;top:0;z-index:1;">
+                <tr>
+                  <th>KM</th>
+                  <th>Elev</th>
+                  <th>Pace</th>
+                  <th>Cumul.</th>
+                  <th>Fuel</th>
+                </tr>
+              </thead>
+              <tbody id="km-splits-body"></tbody>
+            </table>
+          </div>
           <div id="segment-view" style="display:none;">
+            <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
+              <div style="display:flex;background:var(--surface-2);border-radius:var(--radius-sm);padding:2px;gap:2px;">
+                <button id="seg-unit-mi" onclick="window._setSegmentUnit('mi')" style="padding:3px 10px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,0.08);">Miles</button>
+                <button id="seg-unit-km" onclick="window._setSegmentUnit('km')" style="padding:3px 10px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:transparent;color:var(--text-muted);">Kilometers</button>
+              </div>
+            </div>
             <div id="segment-table-wrapper"></div>
             <button onclick="window._addSegment()" style="margin-top:6px;background:transparent;border:1px dashed var(--border);color:var(--text-muted);padding:5px 12px;border-radius:var(--radius-pill);font-size:11px;font-weight:500;cursor:pointer;font-family:inherit;width:100%;">+ Add segment</button>
           </div>
@@ -227,9 +272,12 @@
           Your strategy and start approach are layered on top. You can edit individual splits after generating.
         </p>
       </div>
-      <div class="modal-actions">
-        <button class="btn-secondary" id="pace-cancel">Cancel</button>
-        <button class="btn-primary" id="pace-generate">Generate Splits</button>
+      <div class="modal-actions" style="display:flex;justify-content:space-between;">
+        <button id="pace-clear-all" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:8px 16px;border-radius:var(--radius-pill);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;">Clear All</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-secondary" id="pace-cancel">Cancel</button>
+          <button class="btn-primary" id="pace-generate">Generate Splits</button>
+        </div>
       </div>
     </div>
   </div>
@@ -316,15 +364,18 @@
 
   <!-- ═══ PRO: Nutrition Calculator ═══ -->
   <div id="nutrition-modal" class="modal-overlay" style="display:none;">
-    <div class="modal" style="width:680px;max-height:85vh;display:flex;flex-direction:column;">
+    <div class="modal" style="width:960px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <h3>🍊 Nutrition Calculator</h3>
         <span class="pro-badge-inline">ADV</span>
       </div>
-      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">
         Calculate your fueling plan based on your weight, pace, and preferred race nutrition products.
       </p>
 
+      <div style="display:flex;gap:20px;flex:1;overflow:hidden;">
+      <!-- LEFT COLUMN: Inputs -->
+      <div style="flex:0 0 380px;overflow-y:auto;padding-right:12px;border-right:1px solid var(--border);">
       <div class="modal-body" style="gap:12px;">
         <div class="history-form-row">
           <label>Body Weight
@@ -423,10 +474,10 @@
           <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">TARGETS (auto-recommended, or customize)</div>
           <div class="history-form-row">
             <label>Calories/hr
-              <input type="number" id="nutri-custom-cal" placeholder="Auto" style="flex:1;" />
+              <input type="number" id="nutri-custom-cal" value="100" style="flex:1;" />
             </label>
             <label>Carbs g/hr
-              <input type="number" id="nutri-custom-carb" placeholder="Auto" style="flex:1;" />
+              <input type="number" id="nutri-custom-carb" value="60" style="flex:1;" />
             </label>
           </div>
         </div>
@@ -450,9 +501,11 @@
           </div>
         </div>
       </div>
+      </div><!-- end left column -->
 
-      <!-- Results -->
-      <div id="nutri-results" style="display:none;margin-top:16px;flex:1;overflow-y:auto;">
+      <!-- RIGHT COLUMN: Results -->
+      <div id="nutri-right-col" style="flex:1;min-width:0;overflow-y:auto;">
+        <div id="nutri-results" style="display:none;">
         <div class="nutri-summary-cards">
           <div class="nutri-card">
             <div class="nutri-card-label">Target Intake</div>
@@ -498,11 +551,117 @@
           </div>
         </div>
       </div>
+      </div><!-- end nutri-right-col -->
+      </div><!-- end two-column flex -->
 
-      <div class="modal-actions" style="flex-shrink:0;">
-        <button class="btn-secondary" id="nutrition-close">Close</button>
-        <button class="btn-primary" id="nutrition-calculate">Calculate Plan</button>
-        <button class="btn-primary" id="nutrition-apply" style="display:none;">Apply to Race Plan</button>
+      <div class="modal-actions" style="flex-shrink:0;display:flex;justify-content:space-between;">
+        <button id="nutrition-clear" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:8px 16px;border-radius:var(--radius-pill);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;">Clear All</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-secondary" id="nutrition-close">Close</button>
+          <button class="btn-primary" id="nutrition-calculate">Calculate Plan</button>
+          <button class="btn-primary" id="nutrition-apply" style="display:none;">Apply to Race Plan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Walk/Run Strategy ═══ -->
+  <div id="walkrun-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:580px;max-height:90vh;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <h3>🚶 Walk/Run Strategy</h3>
+      </div>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+        Enter your goal time and run/walk intervals. We'll calculate the exact paces you need for each.
+      </p>
+
+      <div class="modal-body" style="gap:14px;">
+        <label>Goal Finish Time
+          <input type="text" id="wr-goal-time" placeholder="e.g. 5:00:00" style="text-align:center;font-size:16px;" />
+        </label>
+
+        <div style="display:flex;gap:16px;">
+          <!-- Run input -->
+          <div style="flex:1;">
+            <div style="display:flex;gap:2px;background:var(--surface-2);border-radius:var(--radius-sm);padding:2px;margin-bottom:6px;">
+              <button class="wr-field-toggle" data-field="run" data-mode="time" onclick="window._setWRFieldMode('run','time')" style="flex:1;padding:3px 8px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,0.08);">Time</button>
+              <button class="wr-field-toggle" data-field="run" data-mode="dist" onclick="window._setWRFieldMode('run','dist')" style="flex:1;padding:3px 8px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:transparent;color:var(--text-muted);">Distance</button>
+            </div>
+            <div id="wr-run-time-input">
+              <label style="font-size:11px;font-weight:600;color:var(--text-muted);">Run (minutes)
+                <input type="number" id="wr-run-dur" placeholder="4" min="0.5" max="15" step="0.5" style="text-align:center;" />
+              </label>
+            </div>
+            <div id="wr-run-dist-input" style="display:none;">
+              <label style="font-size:11px;font-weight:600;color:var(--text-muted);">Run (miles)
+                <input type="number" id="wr-run-dist" placeholder="0.75" min="0.05" max="5" step="0.05" style="text-align:center;" />
+              </label>
+            </div>
+          </div>
+          <!-- Walk input -->
+          <div style="flex:1;">
+            <div style="display:flex;gap:2px;background:var(--surface-2);border-radius:var(--radius-sm);padding:2px;margin-bottom:6px;">
+              <button class="wr-field-toggle" data-field="walk" data-mode="time" onclick="window._setWRFieldMode('walk','time')" style="flex:1;padding:3px 8px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,0.08);">Time</button>
+              <button class="wr-field-toggle" data-field="walk" data-mode="dist" onclick="window._setWRFieldMode('walk','dist')" style="flex:1;padding:3px 8px;border:none;border-radius:4px;font-size:10px;font-weight:600;font-family:inherit;cursor:pointer;background:transparent;color:var(--text-muted);">Distance</button>
+            </div>
+            <div id="wr-walk-time-input">
+              <label style="font-size:11px;font-weight:600;color:var(--text-muted);">Walk (minutes)
+                <input type="number" id="wr-walk-dur" placeholder="1" min="0.5" max="15" step="0.5" style="text-align:center;" />
+              </label>
+            </div>
+            <div id="wr-walk-dist-input" style="display:none;">
+              <label style="font-size:11px;font-weight:600;color:var(--text-muted);">Walk (miles)
+                <input type="number" id="wr-walk-dist" placeholder="0.25" min="0.05" max="2" step="0.05" style="text-align:center;" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-primary" id="wr-calculate" style="width:100%;">Calculate Walk/Run Paces</button>
+
+        <div id="wr-calc-result" style="display:none;flex:1;overflow-y:auto;">
+          <div style="display:flex;gap:12px;margin-bottom:14px;">
+            <div style="flex:1;text-align:center;padding:14px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">
+              <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Run Pace</div>
+              <div id="wr-run-pace-display" style="font-size:24px;font-weight:800;color:var(--navy);margin-top:4px;"></div>
+              <div id="wr-run-dur-label" style="font-size:10px;color:var(--text-muted);margin-top:2px;"></div>
+            </div>
+            <div style="flex:1;text-align:center;padding:14px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">
+              <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Walk Pace</div>
+              <div id="wr-walk-pace-display" style="font-size:24px;font-weight:800;color:var(--text-muted);margin-top:4px;"></div>
+              <div id="wr-walk-dur-label" style="font-size:10px;color:var(--text-muted);margin-top:2px;"></div>
+            </div>
+            <div style="flex:1;text-align:center;padding:14px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">
+              <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;">Avg Pace</div>
+              <div id="wr-avg-pace-display" style="font-size:24px;font-weight:800;color:var(--primary);margin-top:4px;"></div>
+            </div>
+          </div>
+
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;">Mile-by-Mile Breakdown</div>
+          <table style="width:100%;border-collapse:collapse;font-size:11px;">
+            <thead>
+              <tr style="background:var(--navy);color:#fff;">
+                <th style="padding:5px 8px;font-size:10px;font-weight:600;">Mile</th>
+                <th style="padding:5px 8px;font-size:10px;font-weight:600;">Run</th>
+                <th style="padding:5px 8px;font-size:10px;font-weight:600;">Walk</th>
+                <th style="padding:5px 8px;font-size:10px;font-weight:600;">Mile Time</th>
+                <th style="padding:5px 8px;font-size:10px;font-weight:600;">Cumul.</th>
+              </tr>
+            </thead>
+            <tbody id="wr-mile-breakdown"></tbody>
+          </table>
+
+          <div id="wr-detail" style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-top:10px;padding:10px;background:var(--surface);border-radius:var(--radius-sm);border:1px solid var(--border);"></div>
+        </div>
+        <div id="wr-error" style="display:none;color:#ef4444;font-size:12px;font-weight:600;text-align:center;padding:8px;"></div>
+      </div>
+
+      <div class="modal-actions" style="display:flex;justify-content:space-between;">
+        <button id="wr-clear" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);padding:8px 16px;border-radius:var(--radius-pill);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;">Clear</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-secondary" id="wr-close">Close</button>
+          <button class="btn-primary" id="wr-apply" style="display:none;">Apply to Splits</button>
+        </div>
       </div>
     </div>
   </div>
@@ -614,10 +773,13 @@
         </div>
       </div>
 
-      <div class="modal-actions">
-        <button class="btn-secondary" id="weather-close">Close</button>
-        <button class="btn-primary" id="weather-calculate">Calculate Impact</button>
-        <button class="btn-primary" id="weather-apply" style="display:none;">Apply to Splits</button>
+      <div class="modal-actions" style="display:flex;justify-content:space-between;">
+        <button id="weather-undo" style="display:none;background:transparent;border:1px solid #ef4444;color:#ef4444;padding:8px 16px;border-radius:var(--radius-pill);font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;">Undo Weather Adjustment</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-secondary" id="weather-close">Close</button>
+          <button class="btn-primary" id="weather-calculate">Calculate Impact</button>
+          <button class="btn-primary" id="weather-apply" style="display:none;">Apply to Splits</button>
+        </div>
       </div>
     </div>
   </div>
@@ -668,6 +830,44 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Save Plan Modal -->
+  <div id="save-plan-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:420px;">
+      <h3>Save Your Race Plan</h3>
+      <p class="modal-subtitle">Name your plan so you can come back to it later.</p>
+      <div class="modal-body">
+        <label>Plan Name
+          <input type="text" id="save-plan-name" placeholder="e.g. Boston 2026 Goal A" />
+        </label>
+        <div id="save-plan-email-section" style="display:none;">
+          <div style="padding:10px;background:var(--surface);border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:10px;">
+            <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:4px;">Create a free account to save</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Enter your email to create a free account and save your plans.</div>
+            <label>Email
+              <input type="email" id="save-plan-email" placeholder="you@example.com" />
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="save-plan-skip">Don't Save</button>
+        <button class="btn-primary" id="save-plan-confirm">Save Plan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Saved Plans Modal -->
+  <div id="saved-plans-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:500px;max-height:80vh;display:flex;flex-direction:column;">
+      <h3>Saved Plans</h3>
+      <p class="modal-subtitle">Your saved race plans.</p>
+      <div id="saved-plans-list" style="flex:1;overflow-y:auto;"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="saved-plans-close">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script src="races.js"></script>
   <!-- Support help icon (fixed) -->
   <button onclick="openSupportModal()" style="position:fixed;bottom:20px;right:20px;width:42px;height:42px;background:#334264;color:#fff;border:none;border-radius:50%;font-size:20px;font-weight:800;font-family:inherit;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:1000;" onmouseover="this.style.background='#41AE9F'" onmouseout="this.style.background='#334264'">?</button>
@@ -716,6 +916,73 @@
     }
     window.onRecaptchaLoad = function() { renderCaptchaWidget(); };
     document.getElementById("support-modal").addEventListener("click", function(e) { if (e.target===this) this.style.display="none"; });
+  </script>
+
+  <script>
+    // Planner auth UI
+    (function() {
+      function getUser() { try { return JSON.parse(localStorage.getItem("runwell-user")); } catch { return null; } }
+
+      function updatePlannerAuth() {
+        var user = getUser();
+        var loggedOut = document.getElementById("planner-auth-logged-out");
+        var loggedIn = document.getElementById("planner-auth-logged-in");
+        if (user) {
+          loggedOut.style.display = "none";
+          loggedIn.style.display = "";
+          document.getElementById("planner-user-toggle").textContent = (user.name || user.email || "U")[0].toUpperCase();
+          document.getElementById("planner-user-name").textContent = user.name || user.email;
+        } else {
+          loggedOut.style.display = "";
+          loggedIn.style.display = "none";
+        }
+      }
+
+      // Login button opens a simple prompt (reuses index page logic)
+      document.getElementById("planner-login-btn").addEventListener("click", function() {
+        var email = prompt("Enter your email to log in or create a free account:");
+        if (!email || !email.includes("@")) return;
+        var users = {};
+        try { users = JSON.parse(localStorage.getItem("runwell-users") || "{}"); } catch {}
+        var existing = users[email];
+        if (existing) {
+          localStorage.setItem("runwell-user", JSON.stringify(existing));
+        } else {
+          var user = { email: email, name: email.split("@")[0], plan: "free" };
+          users[email] = user;
+          localStorage.setItem("runwell-users", JSON.stringify(users));
+          localStorage.setItem("runwell-user", JSON.stringify(user));
+        }
+        updatePlannerAuth();
+      });
+
+      // Toggle dropdown
+      document.getElementById("planner-user-toggle").addEventListener("click", function(e) {
+        e.stopPropagation();
+        var dd = document.getElementById("planner-user-dropdown");
+        dd.style.display = dd.style.display === "none" ? "block" : "none";
+      });
+      document.addEventListener("click", function(e) {
+        if (!e.target.closest("#planner-auth-logged-in")) {
+          document.getElementById("planner-user-dropdown").style.display = "none";
+        }
+      });
+
+      // Saved Plans
+      document.getElementById("planner-saved-plans").addEventListener("click", function() {
+        document.getElementById("planner-user-dropdown").style.display = "none";
+        if (typeof window._openSavedPlans === "function") window._openSavedPlans();
+      });
+
+      // Logout
+      document.getElementById("planner-logout").addEventListener("click", function() {
+        localStorage.removeItem("runwell-user");
+        document.getElementById("planner-user-dropdown").style.display = "none";
+        updatePlannerAuth();
+      });
+
+      updatePlannerAuth();
+    })();
   </script>
 
   <script src="app.js"></script>

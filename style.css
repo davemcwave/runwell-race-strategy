@@ -308,6 +308,7 @@ body.resizing-v { user-select: none; cursor: ew-resize; }
 /* Effort column - hidden by default, shown by JS for Coach plan */
 .effort-col { display: none !important; }
 .effort-col.show { display: table-cell !important; }
+.effort-col.show.col-hidden { display: none !important; }
 
 
 /* Bottom panel tabs (elevation / weather) */

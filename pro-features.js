@@ -285,6 +285,26 @@
     document.getElementById("nutrition-calculate").addEventListener("click", calculateNutrition);
     document.getElementById("nutrition-apply").addEventListener("click", applyNutrition);
 
+    // Clear all button
+    document.getElementById("nutrition-clear").addEventListener("click", () => {
+      lastNutritionPlan = [];
+      breakfastItems = [];
+      document.getElementById("nutri-weight").value = "";
+      document.getElementById("nutri-pace").value = "";
+      document.getElementById("nutri-fuel-brand").value = "";
+      document.getElementById("nutri-fuel-secondary").value = "";
+      document.getElementById("nutri-custom-cal").value = "100";
+      document.getElementById("nutri-custom-carb").value = "60";
+      document.getElementById("nutri-breakfast-toggle").checked = false;
+      document.getElementById("nutri-breakfast-section").style.display = "none";
+      document.getElementById("nutri-breakfast-items").innerHTML = "";
+      document.getElementById("nutri-results").style.display = "none";
+      document.getElementById("nutrition-calculate").textContent = "Calculate Plan";
+      document.getElementById("nutrition-calculate").style.display = "";
+      document.getElementById("nutrition-apply").style.display = "none";
+      localStorage.removeItem(getNutriStorageKey());
+    });
+
     // Add fuel stop button
     document.getElementById("nutri-add-stop").addEventListener("click", () => {
       if (lastNutritionPlan.length === 0) return;
@@ -598,14 +618,32 @@
     const targetCarbPerHr = targets.carbPerHr;
     const targetCalPerHr = targets.calPerHr;
 
+    // Compute breakfast totals
+    let breakfastCal = 0, breakfastCarb = 0;
+    const breakfastEnabled = document.getElementById("nutri-breakfast-toggle").checked;
+    if (breakfastEnabled) {
+      breakfastItems.forEach(item => {
+        if (!item) return;
+        const f = BREAKFAST_DB[item.key];
+        if (f) {
+          breakfastCal += f.cal * item.qty;
+          breakfastCarb += f.carb * item.qty;
+        }
+      });
+    }
+
+    // Combined totals (race fuel + breakfast)
+    const combinedCal = totalCal + breakfastCal;
+    const combinedCarb = totalCarb + breakfastCarb;
+
     // Compute needed totals and recommended servings
     const neededTotalCal = Math.round(targetCalPerHr * totalTimeHr);
     const neededTotalCarb = Math.round(targetCarbPerHr * totalTimeHr);
     const avgCalPerServing = lastNutritionPlan.length > 0 ? totalCal / lastNutritionPlan.length : 100;
     const recommendedServings = Math.ceil(neededTotalCal / avgCalPerServing);
 
-    const calDiff = totalCal - neededTotalCal;
-    const carbDiff = totalCarb - neededTotalCarb;
+    const calDiff = combinedCal - neededTotalCal;
+    const carbDiff = combinedCarb - neededTotalCarb;
     const calColor = calDiff >= 0 ? "#41ae9f" : "#ef4444";
     const carbColor = carbDiff >= 0 ? "#41ae9f" : "#ef4444";
 
@@ -627,15 +665,29 @@
       recHTML.style.cssText = "margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:10px;line-height:1.6;";
       totalsDiv.appendChild(recHTML);
     }
+
+    // Build breakfast line if enabled
+    const breakfastLine = breakfastEnabled && breakfastCal > 0
+      ? `<div style="margin-top:3px;">Breakfast: <strong>${breakfastCal} cal, ${breakfastCarb}g carbs</strong> (included in totals below)</div>`
+      : "";
+
+    // Prompt to add breakfast if short and not enabled
+    const breakfastPrompt = (!breakfastEnabled && (calDiff < 0 || carbDiff < 0))
+      ? `<div style="margin-top:6px;padding:6px 8px;background:rgba(217,119,6,0.08);border-radius:4px;color:#d97706;font-weight:500;">💡 You're below your target. Add your pre-race breakfast (scroll down on the left) for a more accurate calculation.</div>`
+      : "";
+
     recHTML.innerHTML = `
       <div style="font-weight:600;color:var(--navy);font-size:11px;margin-bottom:3px;">Recommendation</div>
-      <div>Target: <strong>${neededTotalCal} cal</strong> / <strong>${neededTotalCarb}g carbs</strong> for the full race (${targetCalPerHr} cal/hr × ${totalTimeHr.toFixed(1)} hrs)</div>
+      <div>Target: <strong>${neededTotalCal} cal</strong> / <strong>${neededTotalCarb}g carbs</strong> for race day (${targetCalPerHr} cal/hr × ${totalTimeHr.toFixed(1)} hrs)</div>
       <div>Recommended: <strong>${recommendedServings} servings</strong> of your selected fuel to meet your target</div>
+      ${breakfastLine}
       <div style="margin-top:3px;">
-        Calories: <span style="font-weight:700;color:${calColor}">${totalCal}/${neededTotalCal} cal ${calDiff >= 0 ? "✓" : `(${Math.abs(calDiff)} short)`}</span>
+        Total (${breakfastEnabled && breakfastCal > 0 ? "breakfast + race fuel" : "race fuel only"}):
+        <span style="font-weight:700;color:${calColor}">${combinedCal}/${neededTotalCal} cal ${calDiff >= 0 ? "✓" : `(${Math.abs(calDiff)} short)`}</span>
         &nbsp;&middot;&nbsp;
-        Carbs: <span style="font-weight:700;color:${carbColor}">${totalCarb}/${neededTotalCarb}g ${carbDiff >= 0 ? "✓" : `(${Math.abs(carbDiff)}g short)`}</span>
+        <span style="font-weight:700;color:${carbColor}">${combinedCarb}/${neededTotalCarb}g carbs ${carbDiff >= 0 ? "✓" : `(${Math.abs(carbDiff)}g short)`}</span>
       </div>
+      ${breakfastPrompt}
     `;
 
     // Auto-save on every edit
@@ -692,6 +744,8 @@
     document.getElementById("btn-weather").addEventListener("click", () => {
       requirePro(() => {
         checkWeatherForecastAvailable();
+        // Show undo button if weather was previously applied
+        document.getElementById("weather-undo").style.display = appliedWeatherAdj > 0 ? "" : "none";
         openModal("weather-modal");
       });
     });
@@ -701,6 +755,18 @@
     document.getElementById("weather-calculate").addEventListener("click", calculateWeather);
     document.getElementById("weather-apply").addEventListener("click", applyWeather);
     document.getElementById("weather-auto-fill").addEventListener("click", fetchWeatherForecast);
+
+    // Undo weather adjustment
+    document.getElementById("weather-undo").addEventListener("click", () => {
+      if (appliedWeatherAdj === 0) return;
+      if (window._runwellAdjustSplits) {
+        window._runwellAdjustSplits(-appliedWeatherAdj);
+        alert(`Removed +${Math.round(appliedWeatherAdj)}s/mi weather adjustment from all splits.`);
+        appliedWeatherAdj = 0;
+        document.getElementById("weather-undo").style.display = "none";
+      }
+      closeModal("weather-modal");
+    });
   }
 
   function checkWeatherForecastAvailable() {
@@ -794,6 +860,7 @@
   }
 
   let lastWeatherAdj = 0; // total seconds per mile adjustment
+  let appliedWeatherAdj = 0; // tracks what was actually applied so it can be undone
 
   function calculateWeather() {
     let tempF = parseFloat(document.getElementById("weather-temp").value);
@@ -962,13 +1029,13 @@
     // Adjust split paces if pace plan exists
     if (window._runwellAdjustSplits) {
       window._runwellAdjustSplits(lastWeatherAdj);
+      appliedWeatherAdj = lastWeatherAdj;
       alert(`Applied +${Math.round(lastWeatherAdj)}s/mi weather adjustment to all splits.`);
     } else {
       alert(`Weather adjustment: +${Math.round(lastWeatherAdj)}s/mi. Open Pace Planner to apply to your splits.`);
     }
 
     closeModal("weather-modal");
-    // Reset
     document.getElementById("weather-calculate").style.display = "";
     document.getElementById("weather-apply").style.display = "none";
     document.getElementById("weather-results").style.display = "none";

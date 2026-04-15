@@ -487,6 +487,82 @@
     return splits;
   }
 
+  // Walk/Run calculation helpers
+  function parsePaceInput(str) {
+    if (!str) return 0;
+    const raw = str.replace("/mi", "").trim();
+    if (raw.includes(":")) {
+      const p = raw.split(":").map(Number);
+      return p.length === 2 && !isNaN(p[0]) && !isNaN(p[1]) ? p[0] * 60 + p[1] : 0;
+    }
+    const n = parseInt(raw);
+    if (isNaN(n)) return 0;
+    if (n < 20) return n * 60;
+    if (n >= 100) { const m = Math.floor(n/100), s = n%100; return s < 60 ? m*60+s : 0; }
+    return n * 60;
+  }
+
+  function calcWalkRunFromDurations(goalSeconds, runMinPerCycle, walkMinPerCycle, distance) {
+    // Given: run X min, walk Y min per cycle, and a goal finish time
+    // Calculate: what run pace and walk pace are needed
+    const goalPacePerMile = goalSeconds / distance; // seconds per mile needed
+    const cycleMin = runMinPerCycle + walkMinPerCycle;
+    const runFraction = runMinPerCycle / cycleMin;
+    const walkFraction = walkMinPerCycle / cycleMin;
+
+    // Assume walk pace is ~2.5x run pace (typical ratio)
+    // goalPace = runFraction * runPace + walkFraction * walkPace
+    // walkPace = runPace * 2.5 (reasonable assumption)
+    // goalPace = runFraction * runPace + walkFraction * runPace * 2.5
+    // goalPace = runPace * (runFraction + walkFraction * 2.5)
+    // runPace = goalPace / (runFraction + walkFraction * 2.5)
+    const walkRatio = 2.5;
+    const runPaceSec = goalPacePerMile / (runFraction + walkFraction * walkRatio);
+    const walkPaceSec = runPaceSec * walkRatio;
+
+    if (runPaceSec < 180 || runPaceSec > 1200 || walkPaceSec > 2400) return null; // sanity check
+
+    return {
+      runPace: Math.round(runPaceSec),
+      walkPace: Math.round(walkPaceSec),
+      runPaceStr: secondsToPace(runPaceSec),
+      walkPaceStr: secondsToPace(walkPaceSec),
+      avgPaceStr: secondsToPace(goalPacePerMile),
+      runFraction: Math.round(runFraction * 100),
+      walkFraction: Math.round(walkFraction * 100),
+      runMinPerCycle: runMinPerCycle,
+      walkMinPerCycle: walkMinPerCycle,
+    };
+  }
+
+  function calcWalkRunIntervals(goalSeconds, runPaceSec, walkPaceSec, distance) {
+    // Goal avg pace per mile
+    const goalPacePerMile = goalSeconds / distance;
+    // Solve: runFraction * runPace + (1 - runFraction) * walkPace = goalPace
+    // runFraction = (goalPace - walkPace) / (runPace - walkPace)
+    if (runPaceSec >= walkPaceSec) return null; // run must be faster than walk
+    const runFraction = (goalPacePerMile - walkPaceSec) / (runPaceSec - walkPaceSec);
+
+    if (runFraction < 0 || runFraction > 1) return null; // impossible to achieve goal
+
+    const runMinutes = runFraction; // fraction of each mile running
+    const walkMinutes = 1 - runFraction;
+
+    // Common interval: per mile, how many minutes running vs walking
+    const runTimePerMile = runFraction * runPaceSec;
+    const walkTimePerMile = walkMinutes * walkPaceSec;
+
+    return {
+      runPace: runPaceSec,
+      walkPace: walkPaceSec,
+      runFraction: Math.round(runFraction * 100),
+      walkFraction: Math.round(walkMinutes * 100),
+      runSecsPerMile: Math.round(runTimePerMile),
+      walkSecsPerMile: Math.round(walkTimePerMile),
+      avgPace: secondsToPace(goalPacePerMile),
+    };
+  }
+
   function initPacePlanner() {
     const paceModal = document.getElementById("pace-modal-overlay");
 
@@ -502,6 +578,24 @@
     document.getElementById("btn-pace-planner").addEventListener("click", () => { prefillModal(); paceModal.style.display = "flex"; });
     document.getElementById("btn-edit-pace").addEventListener("click", () => { prefillModal(); paceModal.style.display = "flex"; });
     document.getElementById("pace-cancel").addEventListener("click", () => { paceModal.style.display = "none"; });
+    document.getElementById("pace-clear-all").addEventListener("click", () => {
+      document.getElementById("goal-time").value = "";
+      document.getElementById("pace-strategy").value = "even";
+      document.getElementById("start-approach").value = "even-start";
+      document.getElementById("elev-adjust").checked = true;
+      document.getElementById("race-start-time").value = "08:00";
+      pacePlan.goalTime = null;
+      pacePlan.strategy = "even";
+      pacePlan.startApproach = "even-start";
+      pacePlan.elevAdjusted = true;
+      pacePlan.walkRun = null;
+      pacePlan.splits = [];
+      savePacePlan();
+      renderSplitsTable();
+      updatePaceSummary();
+      if (elevationChart) elevationChart.update("none");
+      paceModal.style.display = "none";
+    });
     paceModal.addEventListener("click", (e) => { if (e.target === paceModal) paceModal.style.display = "none"; });
 
     document.getElementById("pace-generate").addEventListener("click", () => {
@@ -512,6 +606,7 @@
       const startApproach = document.getElementById("start-approach").value;
       const elevAdjusted = document.getElementById("elev-adjust").checked;
       const startTimeEl = document.getElementById("race-start-time");
+
       pacePlan.goalTime = goalSeconds;
       pacePlan.strategy = strategy;
       pacePlan.startApproach = startApproach;
@@ -536,8 +631,9 @@
     const stratLabel = { even: "Even", negative: "Negative", "aggressive-negative": "Agg. Negative", positive: "Positive", "aggressive-positive": "Agg. Positive" }[pacePlan.strategy] || pacePlan.strategy;
     const startLabel = { "even-start": "Even Start", conservative: "Conservative Start", "very-conservative": "Very Conservative" }[pacePlan.startApproach] || "";
     const elevLabel = pacePlan.elevAdjusted !== false ? "Elev-Adjusted" : "Flat Pacing";
+    const wrLabel = pacePlan.walkRun ? ` · Walk/Run (${pacePlan.walkRun.runMinPerCycle}min run / ${pacePlan.walkRun.walkMinPerCycle}min walk)` : "";
     document.getElementById("pace-goal-label").textContent =
-      `Goal: ${secondsToTime(pacePlan.goalTime)} · ${stratLabel}${startLabel ? " · " + startLabel : ""} · Avg ${secondsToPace(pacePlan.goalTime / course.distance)}/mi · ${elevLabel}`;
+      `Goal: ${secondsToTime(pacePlan.goalTime)} · ${stratLabel}${startLabel ? " · " + startLabel : ""} · Avg ${secondsToPace(pacePlan.goalTime / course.distance)}/mi · ${elevLabel}${wrLabel}`;
   }
 
   // ─── Splits Table ─────────────────────────────────────────────
@@ -548,15 +644,24 @@
     const isCoachPlan = (() => { try { const u = JSON.parse(localStorage.getItem("runwell-user")); return u && u.plan === "coach"; } catch { return false; } })();
     const hasStartTime = pacePlan.startTime && isAdvanced;
 
+    const hasWalkRun = pacePlan.walkRun && pacePlan.walkRun.runPaceStr;
+
     // Show/hide time-of-day column
     document.querySelectorAll(".tod-col").forEach((el) => { el.style.display = hasStartTime ? "" : "none"; });
     // Show/hide effort column (Coach only)
     document.querySelectorAll(".effort-col").forEach((el) => { el.classList.toggle("show", isCoachPlan); });
+    // Show/hide walk/run columns (headers and filter labels)
+    document.querySelectorAll(".col-runpace").forEach((el) => {
+      if (el.tagName === "TH" || el.closest("#col-filter-bar")) el.style.display = hasWalkRun ? "" : "none";
+    });
+    document.querySelectorAll(".col-walkpace").forEach((el) => {
+      if (el.tagName === "TH" || el.closest("#col-filter-bar")) el.style.display = hasWalkRun ? "" : "none";
+    });
 
     if (pacePlan.splits.length === 0) {
       const colCount = 5 + (isCoachPlan ? 1 : 0) + (hasStartTime ? 1 : 0);
       tbody.innerHTML = `<tr><td colspan="${colCount}" style="padding:16px;">
-        <div style="max-width:320px;margin:0 auto;">
+        <div style="max-width:380px;margin:0 auto;">
           <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px;text-align:center;">Set Your Race Plan</div>
           <div style="display:flex;flex-direction:column;gap:10px;">
             <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:flex;flex-direction:column;gap:4px;">Goal Finish Time
@@ -591,6 +696,7 @@
           if (!goalSeconds || goalSeconds < 60) { alert("Please enter a valid goal time (e.g. 3:30:00)"); return; }
           const strategy = document.getElementById("inline-strategy").value;
           const startApproach = document.getElementById("inline-start-approach").value;
+
           pacePlan.goalTime = goalSeconds;
           pacePlan.strategy = strategy;
           pacePlan.startApproach = startApproach;
@@ -640,6 +746,8 @@
             <input type="text" value="${s.pace}" data-idx="${i}" class="split-pace-input" />
           </div>
         </td>
+        <td class="col-runpace" style="font-size:11px;color:var(--navy);font-weight:600;${hasWalkRun ? '' : 'display:none;'}">${hasWalkRun ? pacePlan.walkRun.runPaceStr + '/mi' : ''}</td>
+        <td class="col-walkpace" style="font-size:11px;color:var(--text-muted);${hasWalkRun ? '' : 'display:none;'}">${hasWalkRun ? pacePlan.walkRun.walkPaceStr + '/mi' : ''}</td>
         <td class="effort-col col-effort${isCoachPlan ? ' show' : ''}" style="text-align:center;">
           <input type="number" class="effort-input" data-idx="${i}" min="1" max="10" value="${s.effort || 5}" style="width:40px;background:transparent;border:1px solid var(--border);color:${effortColor(s.effort)};font-size:12px;font-family:inherit;text-align:center;border-radius:4px;padding:2px;outline:none;" />
         </td>
@@ -748,6 +856,130 @@
 
     updateFinishTime();
 
+    // Re-apply column checkbox visibility to new th and td cells
+    document.querySelectorAll(".col-check").forEach(function(cb) {
+      if (!cb.checked) {
+        var col = cb.dataset.col;
+        document.querySelectorAll(".col-" + col).forEach(function(el) {
+          if (el.closest("#col-filter-bar")) return;
+          el.classList.add("col-hidden");
+          el.style.display = "none";
+        });
+      }
+    });
+  }
+
+  // ─── KM Splits View ──────────────────────────────────────────
+
+  const MI_TO_KM = 1.60934;
+
+  function renderKmSplits() {
+    const tbody = document.getElementById("km-splits-body");
+    if (!tbody || pacePlan.splits.length === 0) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px;">Generate a pace plan first to see KM splits.</td></tr>';
+      return;
+    }
+
+    const totalKm = course.distance * MI_TO_KM;
+    const totalKmCeil = Math.ceil(totalKm);
+
+    let rows = [];
+    let cumTime = 0;
+
+    for (let km = 1; km <= totalKmCeil; km++) {
+      const isLast = km === totalKmCeil;
+      const kmLength = isLast ? (totalKm - Math.floor(totalKm)) || 1 : 1;
+
+      const mileAtKm = km / MI_TO_KM;
+      const mileIdx = Math.min(Math.ceil(mileAtKm), pacePlan.splits.length) - 1;
+      const split = pacePlan.splits[mileIdx] || pacePlan.splits[pacePlan.splits.length - 1];
+
+      const pacePerKm = split.paceSeconds / MI_TO_KM;
+      const splitTime = pacePerKm * kmLength;
+      cumTime += splitTime;
+
+      const elevChange = getElevChangeForMile(Math.ceil(mileAtKm)) / MI_TO_KM;
+      const elevIcon = elevChange > 12 ? "↑" : elevChange < -12 ? "↓" : "-";
+      const elevColor = elevChange > 12 ? "var(--accent-red)" : elevChange < -12 ? "var(--accent-green)" : "var(--text-muted)";
+
+      const kmLabel = isLast && kmLength < 1 ? `${km - 1}→${totalKm.toFixed(1)}` : km;
+      const hasFuel = fuelMiles.has(Math.ceil(mileAtKm));
+
+      rows.push(`<tr data-km="${km}">
+        <td>${kmLabel}</td>
+        <td style="color:${elevColor}">${elevIcon} ${Math.abs(Math.round(elevChange))}′</td>
+        <td>
+          <div class="pace-cell">
+            <input type="text" value="${secondsToPace(pacePerKm)}" data-km="${km}" class="km-pace-input" style="width:52px;" />
+          </div>
+        </td>
+        <td style="color:var(--text-muted);font-size:11px;">${secondsToTime(cumTime)}</td>
+        <td style="text-align:center;">
+          <button class="km-fuel-toggle" data-mile="${Math.ceil(mileAtKm)}" title="${hasFuel ? 'Remove fuel stop' : 'Add fuel stop'}" style="width:28px;height:28px;border-radius:50%;border:1.5px solid ${hasFuel ? 'var(--primary)' : 'var(--border)'};background:${hasFuel ? 'rgba(65,174,159,0.1)' : 'transparent'};cursor:pointer;font-size:${hasFuel ? '16px' : '14px'};line-height:1;color:${hasFuel ? 'var(--primary)' : 'var(--text-muted)'};transition:all 0.15s;padding:0;">${hasFuel ? '🍊' : '+'}</button>
+        </td>
+      </tr>`);
+    }
+
+    tbody.innerHTML = rows.join("");
+
+    // Pace edit handlers (km view)
+    tbody.querySelectorAll(".km-pace-input").forEach(function(input) {
+      input.addEventListener("change", function(e) {
+        const km = parseInt(e.target.dataset.km);
+        const raw = e.target.value.trim();
+        let newPaceKm = null;
+
+        if (raw.includes(":")) {
+          const p = raw.split(":").map(Number);
+          if (p.length === 2 && !isNaN(p[0]) && !isNaN(p[1])) newPaceKm = p[0] * 60 + p[1];
+        } else {
+          const n = parseInt(raw);
+          if (!isNaN(n)) {
+            if (n < 20) newPaceKm = n * 60;
+            else if (n >= 100) { const m = Math.floor(n/100), s = n%100; if (s < 60) newPaceKm = m*60+s; }
+            else newPaceKm = n * 60;
+          }
+        }
+
+        if (newPaceKm && newPaceKm > 0) {
+          // Convert /km pace back to /mi pace and update the corresponding mile split
+          const newPaceMi = newPaceKm * MI_TO_KM;
+          const mileAtKm = km / MI_TO_KM;
+          const mileIdx = Math.min(Math.ceil(mileAtKm), pacePlan.splits.length) - 1;
+          pacePlan.splits[mileIdx].paceSeconds = newPaceMi;
+          pacePlan.splits[mileIdx].pace = secondsToPace(newPaceMi);
+          recalcCumulativeTimes();
+          savePacePlan();
+          renderKmSplits();
+          if (elevationChart) elevationChart.update("none");
+          updateRunnerInfo(runnerMile);
+        }
+      });
+    });
+
+    // Fuel toggle handlers (km view)
+    tbody.querySelectorAll(".km-fuel-toggle").forEach(function(btn) {
+      btn.addEventListener("click", function(e) {
+        e.stopPropagation();
+        const mile = parseInt(btn.dataset.mile);
+        if (fuelMiles.has(mile)) fuelMiles.delete(mile);
+        else fuelMiles.add(mile);
+        saveFuelMiles();
+        renderFuelMapMarkers();
+        renderKmSplits();
+      });
+    });
+
+    // Click row to navigate
+    tbody.querySelectorAll("tr[data-km]").forEach(function(tr) {
+      tr.addEventListener("click", function(e) {
+        if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+        const km = parseInt(tr.dataset.km);
+        const mile = km / MI_TO_KM;
+        placeRunner(mile - 0.3);
+        map.panTo(getMilePosition(mile - 0.3));
+      });
+    });
   }
 
   function updateFinishTime() {
@@ -1525,7 +1757,28 @@
     renderSplitsTable();
     updatePaceSummary();
 
-    // Splits view toggle (Per Mile / Segments)
+    // Column filter checkboxes (hide both th and td)
+    document.querySelectorAll(".col-check").forEach(function(cb) {
+      cb.addEventListener("change", function() {
+        var col = cb.dataset.col;
+        var show = cb.checked;
+        document.querySelectorAll(".col-" + col).forEach(function(el) {
+          if (el.closest("#col-filter-bar")) return;
+          if (show) {
+            el.classList.remove("col-hidden");
+            el.style.display = "";
+          } else {
+            el.classList.add("col-hidden");
+            el.style.display = "none";
+          }
+        });
+      });
+    });
+
+    // Walk/Run modal
+    initWalkRunModal();
+
+    // Splits view toggle (Per Mile / KM / Segments)
     initSplitsViewToggle();
 
     // Free-text race notes persistence
@@ -1565,14 +1818,396 @@
       if (elevationChart) elevationChart.update("none");
       updateRunnerInfo(runnerMile);
     };
+
+    // ─── Save Plan on Navigate Away ─────────────────────────
+    initSavePlan();
+  }
+
+  // ─── Save Plan ──────────────────────────────────────────────
+
+  function getSavedPlans() {
+    try { return JSON.parse(localStorage.getItem("runwell-saved-plans") || "[]"); } catch { return []; }
+  }
+
+  function setSavedPlans(plans) {
+    localStorage.setItem("runwell-saved-plans", JSON.stringify(plans));
+  }
+
+  function initSavePlan() {
+    const saveModal = document.getElementById("save-plan-modal");
+    const savedPlansModal = document.getElementById("saved-plans-modal");
+    let pendingNavUrl = null;
+
+    // Intercept "Change Race" link
+    document.getElementById("btn-change-race").addEventListener("click", (e) => {
+      e.preventDefault();
+      if (pacePlan.splits.length > 0) {
+        pendingNavUrl = "index.html";
+        showSavePrompt();
+      } else {
+        window.location.href = "index.html";
+      }
+    });
+
+    function showSavePrompt() {
+      const raceId = getRaceId();
+      const race = typeof RACES !== "undefined" && RACES.find(r => r.id === raceId);
+      const defaultName = race ? race.name : "Race Plan";
+      document.getElementById("save-plan-name").value = defaultName;
+
+      // Show email section if not logged in
+      const user = (() => { try { return JSON.parse(localStorage.getItem("runwell-user")); } catch { return null; } })();
+      document.getElementById("save-plan-email-section").style.display = user ? "none" : "";
+
+      saveModal.style.display = "flex";
+      setTimeout(() => document.getElementById("save-plan-name").focus(), 100);
+    }
+
+    // Save button
+    document.getElementById("save-plan-confirm").addEventListener("click", () => {
+      const name = document.getElementById("save-plan-name").value.trim();
+      if (!name) { alert("Please enter a plan name."); return; }
+
+      // Check if user needs to create account
+      let user = (() => { try { return JSON.parse(localStorage.getItem("runwell-user")); } catch { return null; } })();
+      if (!user) {
+        const email = document.getElementById("save-plan-email").value.trim();
+        if (!email || !email.includes("@")) { alert("Please enter a valid email to create your free account."); return; }
+        user = { email: email, name: email.split("@")[0], plan: "free" };
+        localStorage.setItem("runwell-user", JSON.stringify(user));
+      }
+
+      // Save the plan
+      const raceId = getRaceId();
+      const plans = getSavedPlans();
+      plans.push({
+        id: Date.now().toString(),
+        name: name,
+        raceId: raceId,
+        date: new Date().toISOString(),
+        goalTime: pacePlan.goalTime,
+        strategy: pacePlan.strategy,
+        splits: pacePlan.splits.length,
+        data: {
+          goalTime: pacePlan.goalTime,
+          strategy: pacePlan.strategy,
+          startApproach: pacePlan.startApproach,
+          elevAdjusted: pacePlan.elevAdjusted,
+          walkRun: pacePlan.walkRun,
+          fuelMiles: [...fuelMiles],
+        }
+      });
+      setSavedPlans(plans);
+
+      saveModal.style.display = "none";
+      if (pendingNavUrl) {
+        window.location.href = pendingNavUrl;
+        pendingNavUrl = null;
+      }
+    });
+
+    // Don't Save button
+    document.getElementById("save-plan-skip").addEventListener("click", () => {
+      saveModal.style.display = "none";
+      if (pendingNavUrl) {
+        window.location.href = pendingNavUrl;
+        pendingNavUrl = null;
+      }
+    });
+
+    saveModal.addEventListener("click", (e) => { if (e.target === saveModal) saveModal.style.display = "none"; });
+
+    // Saved Plans modal
+    document.getElementById("saved-plans-close").addEventListener("click", () => { savedPlansModal.style.display = "none"; });
+    savedPlansModal.addEventListener("click", (e) => { if (e.target === savedPlansModal) savedPlansModal.style.display = "none"; });
+
+    // Expose for the dropdown
+    window._openSavedPlans = function() {
+      const plans = getSavedPlans();
+      const list = document.getElementById("saved-plans-list");
+
+      if (plans.length === 0) {
+        list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px;">No saved plans yet. Plans are saved when you navigate away from a race.</div>';
+      } else {
+        list.innerHTML = plans.sort((a, b) => new Date(b.date) - new Date(a.date)).map((p, i) => {
+          const race = typeof RACES !== "undefined" && RACES.find(r => r.id === p.raceId);
+          const raceName = race ? race.name : p.raceId;
+          const goalStr = p.goalTime ? secondsToTime(p.goalTime) : "No goal";
+          const dateStr = new Date(p.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border);">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:14px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.name}</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${raceName} &middot; ${goalStr} &middot; ${p.splits} splits &middot; ${dateStr}</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0;margin-left:10px;">
+              <a href="planner.html?race=${p.raceId}" style="padding:5px 12px;background:var(--primary);color:#fff;border-radius:var(--radius-pill);font-size:11px;font-weight:600;text-decoration:none;">Open</a>
+              <button class="saved-plan-delete" data-idx="${i}" style="padding:5px 8px;background:none;border:1px solid var(--border);border-radius:var(--radius-pill);font-size:11px;cursor:pointer;font-family:inherit;color:var(--text-muted);">×</button>
+            </div>
+          </div>`;
+        }).join("");
+
+        // Delete handlers
+        list.querySelectorAll(".saved-plan-delete").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const sorted = plans.sort((a, b) => new Date(b.date) - new Date(a.date));
+            const idx = parseInt(btn.dataset.idx);
+            const target = sorted[idx];
+            const origIdx = plans.findIndex(p => p.id === target.id);
+            if (origIdx >= 0) plans.splice(origIdx, 1);
+            setSavedPlans(plans);
+            window._openSavedPlans(); // re-render
+          });
+        });
+      }
+
+      savedPlansModal.style.display = "flex";
+    };
   }
 
   // ─── Bottom Panel Tabs (Elevation / Weather) ─────────────────
+
+  // ─── Walk/Run Modal ─────────────────────────────────────────
+
+  function initWalkRunModal() {
+    const modal = document.getElementById("walkrun-modal");
+    const goalInput = document.getElementById("wr-goal-time");
+    const runDurInput = document.getElementById("wr-run-dur");
+    const walkDurInput = document.getElementById("wr-walk-dur");
+    const resultDiv = document.getElementById("wr-calc-result");
+    const errorDiv = document.getElementById("wr-error");
+
+    document.getElementById("btn-walk-run").addEventListener("click", () => {
+      // Prefill goal time from pace plan
+      if (pacePlan.goalTime && goalInput) {
+        goalInput.value = secondsToTime(pacePlan.goalTime);
+      }
+      // Restore saved walk/run data
+      if (pacePlan.walkRun) {
+        runDurInput.value = pacePlan.walkRun.runMinPerCycle || "";
+        walkDurInput.value = pacePlan.walkRun.walkMinPerCycle || "";
+      }
+      modal.style.display = "flex";
+      updateWRCalc();
+    });
+
+    let wrRunMode = "time"; // "time" or "dist"
+    let wrWalkMode = "time";
+
+    window._setWRFieldMode = function(field, mode) {
+      if (field === "run") {
+        wrRunMode = mode;
+        document.getElementById("wr-run-time-input").style.display = mode === "time" ? "" : "none";
+        document.getElementById("wr-run-dist-input").style.display = mode === "dist" ? "" : "none";
+      } else {
+        wrWalkMode = mode;
+        document.getElementById("wr-walk-time-input").style.display = mode === "time" ? "" : "none";
+        document.getElementById("wr-walk-dist-input").style.display = mode === "dist" ? "" : "none";
+      }
+      // Update toggle button styles
+      document.querySelectorAll('.wr-field-toggle[data-field="' + field + '"]').forEach(function(btn) {
+        var isActive = btn.dataset.mode === mode;
+        btn.style.background = isActive ? "#fff" : "transparent";
+        btn.style.color = isActive ? "var(--navy)" : "var(--text-muted)";
+        btn.style.boxShadow = isActive ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
+      });
+    };
+
+    document.getElementById("wr-close").addEventListener("click", () => { modal.style.display = "none"; });
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.style.display = "none"; });
+
+    // Calculate button
+    document.getElementById("wr-calculate").addEventListener("click", () => {
+      const goalSec = parseTimeToSeconds(goalInput.value);
+      if (!goalSec) { alert("Please enter a goal finish time."); return; }
+
+      const goalPacePerMile = goalSec / course.distance;
+      const walkRatio = 2.5;
+
+      // Get run value (time or distance)
+      let runMin;
+      if (wrRunMode === "time") {
+        runMin = parseFloat(runDurInput.value);
+        if (!runMin) { alert("Please enter a run duration."); return; }
+      } else {
+        const runDist = parseFloat(document.getElementById("wr-run-dist").value);
+        if (!runDist) { alert("Please enter a run distance."); return; }
+        // Estimate run pace to convert distance to time
+        // First pass: assume even split to get approximate run pace
+        const approxRunPace = goalPacePerMile / (1 + 0); // will refine below
+        runMin = null; // will be calculated after we know walk value
+      }
+
+      // Get walk value (time or distance)
+      let walkMin;
+      if (wrWalkMode === "time") {
+        walkMin = parseFloat(walkDurInput.value);
+        if (!walkMin) { alert("Please enter a walk duration."); return; }
+      } else {
+        const walkDist = parseFloat(document.getElementById("wr-walk-dist").value);
+        if (!walkDist) { alert("Please enter a walk distance."); return; }
+        walkMin = null; // will be calculated below
+      }
+
+      // Handle mixed mode calculations
+      // We need runMin and walkMin to feed into calcWalkRunFromDurations
+      // If one is distance-based, we need to solve for the time equivalent
+      if (runMin === null || walkMin === null) {
+        const runDistVal = wrRunMode === "dist" ? parseFloat(document.getElementById("wr-run-dist").value) : null;
+        const walkDistVal = wrWalkMode === "dist" ? parseFloat(document.getElementById("wr-walk-dist").value) : null;
+        const runTimeVal = wrRunMode === "time" ? parseFloat(runDurInput.value) : null;
+        const walkTimeVal = wrWalkMode === "time" ? parseFloat(walkDurInput.value) : null;
+
+        if (runDistVal !== null && walkDistVal !== null) {
+          // Both distance: same as old distance mode
+          const cycleDist = runDistVal + walkDistVal;
+          const runFrac = runDistVal / cycleDist;
+          const walkFrac = walkDistVal / cycleDist;
+          const runPaceSec = goalPacePerMile / (runFrac + walkFrac * walkRatio);
+          runMin = (runDistVal * runPaceSec) / 60;
+          walkMin = (walkDistVal * runPaceSec * walkRatio) / 60;
+        } else if (runDistVal !== null && walkTimeVal !== null) {
+          // Run by distance, walk by time
+          // Iterate: guess run pace, compute cycle, check if avg matches goal
+          let bestRunPace = goalPacePerMile * 0.7;
+          for (let iter = 0; iter < 20; iter++) {
+            const runTimeSec = runDistVal * bestRunPace;
+            const walkTimeSec = walkTimeVal * 60;
+            const cycleSec = runTimeSec + walkTimeSec;
+            const walkPace = bestRunPace * walkRatio;
+            const walkDist = walkTimeSec / walkPace;
+            const cycleDist = runDistVal + walkDist;
+            const avgPace = cycleSec / cycleDist;
+            bestRunPace += (goalPacePerMile - avgPace) * 0.5;
+          }
+          runMin = (runDistVal * bestRunPace) / 60;
+          walkMin = walkTimeVal;
+        } else if (runTimeVal !== null && walkDistVal !== null) {
+          // Run by time, walk by distance
+          let bestRunPace = goalPacePerMile * 0.7;
+          for (let iter = 0; iter < 20; iter++) {
+            const runTimeSec = runTimeVal * 60;
+            const runDist = runTimeSec / bestRunPace;
+            const walkPace = bestRunPace * walkRatio;
+            const walkTimeSec = walkDistVal * walkPace;
+            const cycleSec = runTimeSec + walkTimeSec;
+            const cycleDist = runDist + walkDistVal;
+            const avgPace = cycleSec / cycleDist;
+            bestRunPace += (goalPacePerMile - avgPace) * 0.5;
+          }
+          runMin = runTimeVal;
+          walkMin = (walkDistVal * bestRunPace * walkRatio) / 60;
+        }
+      }
+
+      const data = calcWalkRunFromDurations(goalSec, runMin, walkMin, course.distance);
+      if (!data) {
+        resultDiv.style.display = "none";
+        errorDiv.style.display = "";
+        errorDiv.textContent = "Cannot achieve this goal with these intervals. Try adjusting your durations or goal time.";
+        document.getElementById("wr-apply").style.display = "none";
+        return;
+      }
+
+      errorDiv.style.display = "none";
+      resultDiv.style.display = "";
+      document.getElementById("wr-apply").style.display = "";
+      document.getElementById("wr-run-pace-display").textContent = data.runPaceStr + "/mi";
+      document.getElementById("wr-walk-pace-display").textContent = data.walkPaceStr + "/mi";
+      document.getElementById("wr-avg-pace-display").textContent = data.avgPaceStr + "/mi";
+      document.getElementById("wr-run-dur-label").textContent = `${runMin} min running`;
+      document.getElementById("wr-walk-dur-label").textContent = `${walkMin} min walking`;
+
+      // Build mile-by-mile breakdown
+      const totalMiles = Math.ceil(course.distance);
+      const lastFraction = course.distance - Math.floor(course.distance);
+      const cycleMin = runMin + walkMin;
+      const totalCycles = Math.floor((goalSec / 60) / cycleMin);
+      let cumTime = 0;
+      let breakdownHTML = "";
+
+      for (let m = 1; m <= totalMiles; m++) {
+        const isLast = m === totalMiles;
+        const mileLength = isLast && lastFraction > 0.01 ? lastFraction : 1;
+        const mileTime = (goalSec / course.distance) * mileLength;
+        const runTimeInMile = (runMin / cycleMin) * mileTime;
+        const walkTimeInMile = (walkMin / cycleMin) * mileTime;
+        cumTime += mileTime;
+        const mileLabel = isLast && mileLength < 1 ? `${m-1}→${course.distance.toFixed(1)}` : m;
+
+        breakdownHTML += `<tr style="border-bottom:1px solid var(--surface-2);">
+          <td style="padding:4px 8px;">${mileLabel}</td>
+          <td style="padding:4px 8px;color:var(--navy);font-weight:600;">${data.runPaceStr}/mi <span style="font-weight:400;color:var(--text-muted);font-size:10px;">(${Math.floor(runTimeInMile/60)}:${String(Math.round(runTimeInMile%60)).padStart(2,"0")})</span></td>
+          <td style="padding:4px 8px;color:var(--text-muted);">${data.walkPaceStr}/mi <span style="font-size:10px;">(${Math.floor(walkTimeInMile/60)}:${String(Math.round(walkTimeInMile%60)).padStart(2,"0")})</span></td>
+          <td style="padding:4px 8px;font-weight:600;">${secondsToTime(mileTime)}</td>
+          <td style="padding:4px 8px;color:var(--text-muted);font-size:11px;">${secondsToTime(cumTime)}</td>
+        </tr>`;
+      }
+      document.getElementById("wr-mile-breakdown").innerHTML = breakdownHTML;
+
+      // Build detail text based on each field's mode
+      const runLabel = wrRunMode === "dist"
+        ? `Run <strong>${document.getElementById("wr-run-dist").value} mi</strong> (~${runMin.toFixed(1)} min)`
+        : `Run <strong>${runMin} min</strong>`;
+      const walkLabel = wrWalkMode === "dist"
+        ? `Walk <strong>${document.getElementById("wr-walk-dist").value} mi</strong> (~${walkMin.toFixed(1)} min)`
+        : `Walk <strong>${walkMin} min</strong>`;
+
+      document.getElementById("wr-detail").innerHTML =
+        `<div>${runLabel}, ${walkLabel} per cycle (${cycleMin.toFixed(1)} min total)</div>` +
+        `<div>~<strong>${totalCycles} cycles</strong> over the full race</div>` +
+        `<div>${data.runFraction}% running, ${data.walkFraction}% walking</div>` +
+        `<div style="margin-top:4px;">Estimated finish: <strong>${secondsToTime(goalSec)}</strong></div>`;
+
+      // Save walk/run data
+      pacePlan.walkRun = data;
+      savePacePlan();
+      renderSplitsTable();
+      updatePaceSummary();
+    });
+
+    // Apply to splits
+    document.getElementById("wr-apply").addEventListener("click", () => {
+      const goalSec = parseTimeToSeconds(goalInput.value);
+      if (!goalSec || !pacePlan.walkRun) { alert("Calculate paces first."); return; }
+
+      pacePlan.goalTime = goalSec;
+      if (!pacePlan.strategy) pacePlan.strategy = "even";
+      if (!pacePlan.startApproach) pacePlan.startApproach = "even-start";
+      if (pacePlan.elevAdjusted === undefined) pacePlan.elevAdjusted = true;
+      if (!pacePlan.startTime) pacePlan.startTime = "08:00";
+
+      pacePlan.splits = generateSplits(goalSec, pacePlan.strategy, pacePlan.startApproach, pacePlan.elevAdjusted);
+      savePacePlan();
+      renderSplitsTable();
+      updatePaceSummary();
+      if (elevationChart) elevationChart.update("none");
+      updateRunnerInfo(runnerMile);
+      switchTab("splits");
+      modal.style.display = "none";
+    });
+
+    // Clear
+    document.getElementById("wr-clear").addEventListener("click", () => {
+      goalInput.value = "";
+      runDurInput.value = "";
+      walkDurInput.value = "";
+      document.getElementById("wr-run-dist").value = "";
+      document.getElementById("wr-walk-dist").value = "";
+      resultDiv.style.display = "none";
+      errorDiv.style.display = "none";
+      document.getElementById("wr-apply").style.display = "none";
+      pacePlan.walkRun = null;
+      savePacePlan();
+      renderSplitsTable();
+      updatePaceSummary();
+    });
+  }
 
   // ─── Splits View Toggle (Per Mile / Segments) ──────────────
 
   let segments = [];
   let activeView = "mile";
+  let segmentUnit = "mi"; // "mi" or "km"
 
   function parsePaceStr(str) {
     if (!str) return 0;
@@ -1614,26 +2249,38 @@
       if (view === activeView) return;
       activeView = view;
 
-      var mileBtn = document.getElementById("view-btn-mile");
-      var segBtn = document.getElementById("view-btn-segment");
-      if (mileBtn) {
-        mileBtn.style.background = view === "mile" ? "#fff" : "transparent";
-        mileBtn.style.color = view === "mile" ? "var(--navy)" : "var(--text-muted)";
-        mileBtn.style.boxShadow = view === "mile" ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
-      }
-      if (segBtn) {
-        segBtn.style.background = view === "segment" ? "#fff" : "transparent";
-        segBtn.style.color = view === "segment" ? "var(--navy)" : "var(--text-muted)";
-        segBtn.style.boxShadow = view === "segment" ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
-      }
+      // Update all toggle button styles
+      ["mile", "km", "segment"].forEach(function(v) {
+        var btn = document.getElementById("view-btn-" + v);
+        if (btn) {
+          btn.style.background = view === v ? "#fff" : "transparent";
+          btn.style.color = view === v ? "var(--navy)" : "var(--text-muted)";
+          btn.style.boxShadow = view === v ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
+        }
+      });
 
       document.getElementById("splits-table-wrapper").style.display = view === "mile" ? "" : "none";
+      document.getElementById("km-table-wrapper").style.display = view === "km" ? "" : "none";
       document.getElementById("segment-view").style.display = view === "segment" ? "block" : "none";
 
+      if (view === "km") {
+        renderKmSplits();
+      }
       if (view === "segment") {
         if (segments.length === 0) buildDefaultSegments();
         renderSegments();
       }
+    };
+
+    window._setSegmentUnit = function(unit) {
+      segmentUnit = unit;
+      document.getElementById("seg-unit-mi").style.background = unit === "mi" ? "#fff" : "transparent";
+      document.getElementById("seg-unit-mi").style.color = unit === "mi" ? "var(--navy)" : "var(--text-muted)";
+      document.getElementById("seg-unit-mi").style.boxShadow = unit === "mi" ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
+      document.getElementById("seg-unit-km").style.background = unit === "km" ? "#fff" : "transparent";
+      document.getElementById("seg-unit-km").style.color = unit === "km" ? "var(--navy)" : "var(--text-muted)";
+      document.getElementById("seg-unit-km").style.boxShadow = unit === "km" ? "0 1px 3px rgba(0,0,0,0.08)" : "none";
+      renderSegments();
     };
 
     window._addSegment = function() {
@@ -1688,11 +2335,15 @@
 
   function renderSegments() {
     const wrapper = document.getElementById("segment-table-wrapper");
-    const dist = course.distance; // 26.2 or 13.1
+    const distMi = course.distance; // always in miles internally
+    const isKm = segmentUnit === "km";
+    const conv = isKm ? MI_TO_KM : 1;
+    const unitLabel = isKm ? "Kilometers" : "Miles";
+    const paceLabel = isKm ? "/km" : "/mi";
 
     let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
     html += `<thead><tr style="background:var(--navy);color:#fff;">
-      <th style="padding:6px 8px;font-size:10px;font-weight:600;text-transform:uppercase;">Miles</th>
+      <th style="padding:6px 8px;font-size:10px;font-weight:600;text-transform:uppercase;">${unitLabel}</th>
       <th style="padding:6px 8px;font-size:10px;font-weight:600;">Label</th>
       <th style="padding:6px 8px;font-size:10px;font-weight:600;">Pace</th>
       <th style="padding:6px 8px;font-size:10px;font-weight:600;">Elev</th>
@@ -1701,11 +2352,20 @@
     </tr></thead><tbody>`;
 
     let grandTotal = 0;
+    const displayDist = Math.round(distMi * conv * 10) / 10;
 
     segments.forEach((seg, i) => {
+      // Segments stored in miles internally
+      const displayStart = Math.round(seg.start * conv * 10) / 10;
+      const displayEnd = Math.round(seg.end * conv * 10) / 10;
       const miles = Math.round((seg.end - seg.start + 1) * 10) / 10;
-      const paceSec = parsePaceStr(seg.pace);
-      const segTime = paceSec > 0 ? paceSec * miles : 0;
+
+      // Pace: stored as /mi, display as /km if needed
+      const storedPaceSec = parsePaceStr(seg.pace);
+      const displayPaceSec = isKm && storedPaceSec > 0 ? storedPaceSec / MI_TO_KM : storedPaceSec;
+      const displayPace = displayPaceSec > 0 ? secondsToPace(displayPaceSec) : seg.pace;
+
+      const segTime = storedPaceSec > 0 ? storedPaceSec * miles : 0;
       grandTotal += segTime;
       const elev = getSegmentElevation(seg.start, seg.end);
       const elevStr = `↑${elev.gain}′ ↓${elev.loss}′`;
@@ -1713,15 +2373,15 @@
 
       html += `<tr style="border-bottom:1px solid var(--border);">
         <td style="padding:6px 8px;white-space:nowrap;">
-          <input type="number" class="seg-input seg-start" data-idx="${i}" value="${seg.start}" min="1" max="${dist}" step="0.1" style="width:46px;padding:2px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
+          <input type="number" class="seg-input seg-start" data-idx="${i}" value="${displayStart}" min="${conv}" max="${displayDist}" step="0.1" style="width:46px;padding:2px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
           <span style="color:var(--text-muted);font-size:10px;margin:0 2px;">to</span>
-          <input type="number" class="seg-input seg-end" data-idx="${i}" value="${seg.end}" min="1" max="${dist}" step="0.1" style="width:46px;padding:2px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
+          <input type="number" class="seg-input seg-end" data-idx="${i}" value="${displayEnd}" min="${conv}" max="${displayDist}" step="0.1" style="width:46px;padding:2px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
         </td>
         <td style="padding:6px 8px;">
           <input type="text" class="seg-input seg-label" data-idx="${i}" value="${seg.label}" placeholder="Label" style="width:100%;padding:2px 5px;border:1px solid var(--border);border-radius:4px;font-size:11px;font-family:inherit;" />
         </td>
         <td style="padding:6px 8px;">
-          <input type="text" class="seg-input seg-pace" data-idx="${i}" value="${seg.pace}" placeholder="8:00" style="width:52px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
+          <input type="text" class="seg-input seg-pace" data-idx="${i}" value="${displayPace}" placeholder="${isKm ? '5:00' : '8:00'}" style="width:52px;padding:2px 5px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:center;font-family:inherit;" />
         </td>
         <td style="padding:6px 8px;font-size:10px;color:${elevColor};white-space:nowrap;">${elevStr}</td>
         <td style="padding:6px 8px;font-size:11px;color:var(--text-muted);font-weight:600;">${segTime > 0 ? secondsToTime(segTime) : ""}</td>
@@ -1744,12 +2404,16 @@
     wrapper.innerHTML = html;
 
     // Wire up all handlers
+    const isKmMode = segmentUnit === "km";
+    const convBack = isKmMode ? (1 / MI_TO_KM) : 1;
+
     wrapper.querySelectorAll(".seg-start").forEach(el => el.addEventListener("change", e => {
-      segments[+e.target.dataset.idx].start = parseFloat(e.target.value) || 1;
+      segments[+e.target.dataset.idx].start = Math.round((parseFloat(e.target.value) || 1) * convBack * 10) / 10;
       renderSegments(); saveSegments();
     }));
     wrapper.querySelectorAll(".seg-end").forEach(el => el.addEventListener("change", e => {
-      segments[+e.target.dataset.idx].end = Math.min(parseFloat(e.target.value) || 1, course.distance);
+      const val = (parseFloat(e.target.value) || 1) * convBack;
+      segments[+e.target.dataset.idx].end = Math.min(Math.round(val * 10) / 10, course.distance);
       renderSegments(); saveSegments();
     }));
     wrapper.querySelectorAll(".seg-label").forEach(el => el.addEventListener("change", e => {
@@ -1759,7 +2423,9 @@
     wrapper.querySelectorAll(".seg-pace").forEach(el => el.addEventListener("change", e => {
       const idx = +e.target.dataset.idx;
       const val = e.target.value.trim();
-      const sec = parsePaceStr(val);
+      let sec = parsePaceStr(val);
+      // If in km mode, convert entered /km pace to /mi for storage
+      if (isKmMode && sec > 0) sec = sec * MI_TO_KM;
       segments[idx].pace = sec > 0 ? secondsToPace(sec) : val;
       renderSegments(); saveSegments();
     }));
@@ -1831,29 +2497,14 @@
       tab.addEventListener("click", () => {
         const which = tab.dataset.bottomTab;
 
-        // Race History is Advanced/Coach only
-        if (which === "history") {
-          var isAdvanced = false;
-          try { var u = JSON.parse(localStorage.getItem("runwell-user")); isAdvanced = u && (u.plan === "advanced" || u.plan === "pro" || u.plan === "coach"); } catch(e) {}
-          if (!isAdvanced) {
-            var gateModal = document.getElementById("pro-gate-modal");
-            if (gateModal) gateModal.style.display = "flex";
-            return;
-          }
-        }
-
         document.querySelectorAll(".bottom-tab").forEach(t => t.classList.remove("active"));
         tab.classList.add("active");
         document.getElementById("elevation-chart-wrapper").style.display = which === "elevation" ? "" : "none";
         document.getElementById("elevation-stats").style.display = which === "elevation" ? "" : "none";
         document.getElementById("weather-panel").style.display = which === "weather" ? "" : "none";
-        document.getElementById("history-inline-panel").style.display = which === "history" ? "" : "none";
         if (which === "weather" && !weatherLoaded) {
           weatherLoaded = true;
           loadWeatherData();
-        }
-        if (which === "history") {
-          renderInlineHistory();
         }
       });
     });
