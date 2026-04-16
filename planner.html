@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Interactive Race Strategy</title>
+  <title>Race Plans</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -830,6 +830,48 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Export Options Modal -->
+  <div id="export-modal" class="modal-overlay" style="display:none;">
+    <div class="modal" style="width:400px;">
+      <h3>Export Race Plan</h3>
+      <p class="modal-subtitle">Choose what to include in your PDF.</p>
+      <div class="modal-body" style="gap:10px;">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
+          <input type="checkbox" id="export-map" checked style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;" />
+          Course Map
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
+          <input type="checkbox" id="export-elevation" checked style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;" />
+          Elevation Profile
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
+          <input type="checkbox" id="export-splits" checked style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;" />
+          Pacing Strategy (splits table)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
+          <input type="checkbox" id="export-fuel" checked style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;" />
+          Nutrition / Fuel Stops
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
+          <input type="checkbox" id="export-weather" style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;" />
+          Weather Impact
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
+          <input type="checkbox" id="export-notes" style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;" />
+          Race Notes
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 0;">
+          <input type="checkbox" id="export-walkrun" style="width:16px;height:16px;accent-color:var(--primary);cursor:pointer;" />
+          Walk/Run Strategy
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="export-cancel">Cancel</button>
+        <button class="btn-primary" id="export-generate">Generate PDF</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Save Plan Modal -->
   <div id="save-plan-modal" class="modal-overlay" style="display:none;">
     <div class="modal" style="width:420px;">

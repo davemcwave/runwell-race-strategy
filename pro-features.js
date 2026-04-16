@@ -972,6 +972,16 @@
     // ─── Total ──────────────────────────────────────
     lastWeatherAdj = tempAdj + humidAdj + windAdj + condAdj;
 
+    // Store for export
+    if (window._runwellSetWeatherData) {
+      window._runwellSetWeatherData({
+        temp: document.getElementById("weather-temp").value + "°" + document.getElementById("weather-temp-unit").value,
+        humidity: document.getElementById("weather-humidity").value + "%",
+        wind: document.getElementById("weather-wind").value + " " + document.getElementById("weather-wind-unit").value,
+        adj: lastWeatherAdj,
+      });
+    }
+
     // Update cards
     setWeatherCard("weather-card-temp", tempImpact, tempLevel);
     setWeatherCard("weather-card-humidity", humidImpact, humidLevel);
@@ -1192,7 +1202,6 @@
   function init() {
     initProGate();
     initCoachFeatures();
-    initRaceHistory();
     initNutrition();
     initWeather();
   }

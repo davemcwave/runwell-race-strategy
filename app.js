@@ -14,6 +14,7 @@
   let mapMarkers = {};
   let fuelMiles = new Set();
   let fuelMapMarkers = {};
+  let lastWeatherData = null; // { temp, adj } populated by weather modal
 
   // Pace plan state: per-mile data
   let pacePlan = {
@@ -1333,63 +1334,51 @@
   // ─── Export ────────────────────────────────────────────────────
 
   function exportPlan() {
-    const btn = document.getElementById("btn-export");
+    // Show export options modal
+    const modal = document.getElementById("export-modal");
+    modal.style.display = "flex";
+  }
+
+  function doExportWithOptions() {
+    const btn = document.getElementById("export-generate");
     btn.textContent = "Generating…";
     btn.disabled = true;
 
+    const opts = {
+      map: document.getElementById("export-map").checked,
+      elevation: document.getElementById("export-elevation").checked,
+      splits: document.getElementById("export-splits").checked,
+      fuel: document.getElementById("export-fuel").checked,
+      weather: document.getElementById("export-weather").checked,
+      notes: document.getElementById("export-notes").checked,
+      walkrun: document.getElementById("export-walkrun").checked,
+    };
+
     // Capture elevation chart
-    const elevImg = document.getElementById("elevation-chart").toDataURL("image/png", 1.0);
+    const elevImg = opts.elevation ? document.getElementById("elevation-chart").toDataURL("image/png", 1.0) : null;
 
-    // Capture the Leaflet map container as an image
-    const mapContainer = document.getElementById("map");
-    const mapCanvas = document.createElement("canvas");
-    const rect = mapContainer.getBoundingClientRect();
-    mapCanvas.width = rect.width * 2;
-    mapCanvas.height = rect.height * 2;
-    const ctx = mapCanvas.getContext("2d");
-    ctx.scale(2, 2);
-
-    // Use html2canvas on just the map div
-    const doExport = (mapDataUrl) => {
-      const freeNotes = document.getElementById("race-notes-freetext")?.value || "";
-      const html = buildExportHTML(mapDataUrl, elevImg, freeNotes);
-      const w = window.open("", "_blank");
-      if (!w) { alert("Please allow popups to export."); btn.textContent = "Export Plan"; btn.disabled = false; return; }
-      w.document.write(html);
-      w.document.close();
-      btn.textContent = "Export Plan";
-      btn.disabled = false;
-    };
-
-    // Fit map to route bounds before capture, wait for tiles to load
-    map.fitBounds(routeLine.getBounds().pad(0.05));
-    map.invalidateSize();
-
-    const captureMap = () => {
-      // Wait a beat for tiles to render after fitBounds
-      setTimeout(() => {
-        html2canvas(mapContainer, {
-          useCORS: true,
-          allowTaint: true,
-          scale: 2,
-          logging: false,
-          backgroundColor: "#ffffff",
-        }).then(c => doExport(c.toDataURL("image/png"))).catch(() => doExport(null));
-      }, 800);
-    };
-
-    if (typeof html2canvas !== "undefined") {
-      captureMap();
-    } else {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-      s.onload = captureMap;
-      s.onerror = () => doExport(null);
-      document.head.appendChild(s);
+    // Build a static map URL using the route polyline
+    let mapImg = null;
+    if (opts.map) {
+      const bounds = routeLine.getBounds();
+      const center = bounds.getCenter();
+      const zoom = map.getZoom();
+      mapImg = `https://staticmap.openstreetmap.de/staticmap.php?center=${center.lat},${center.lng}&zoom=${Math.min(zoom, 13)}&size=750x350&maptype=mapnik`;
     }
+
+    const freeNotes = opts.notes ? (document.getElementById("race-notes-freetext")?.value || "") : "";
+    const html = buildExportHTML(mapImg, elevImg, freeNotes, opts);
+    const w = window.open("", "_blank");
+    if (!w) { alert("Please allow popups to export."); }
+    else { w.document.write(html); w.document.close(); }
+
+    btn.textContent = "Generate PDF";
+    btn.disabled = false;
+    document.getElementById("export-modal").style.display = "none";
   }
 
-  function buildExportHTML(mapImg, elevImg, freeNotes) {
+  function buildExportHTML(mapImg, elevImg, freeNotes, opts) {
+    opts = opts || { map: true, elevation: true, splits: true, fuel: true, weather: false, notes: false, walkrun: false };
     const raceName = course.name || "Race Plan";
     const dist = course.distance.toFixed(2);
     const goalStr = pacePlan.goalTime ? secondsToTime(pacePlan.goalTime) : "-";
@@ -1623,7 +1612,7 @@
       <div class="subtitle">${dist} miles &middot; ${stratStr} splits strategy</div>
     </div>
     <div class="header-right">
-      <div class="brand">Interactive Race Strategies</div>
+      <div class="brand">Race Plans</div>
       <div>Powered by RunWell Clinic</div>
       <div>Generated ${new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
     </div>
@@ -1656,31 +1645,54 @@
     </div>` : ""}
   </div>
 
-  <div class="map-splits-row">
-    <div class="map-col">
-      ${mapImg ? `<img src="${mapImg}" alt="Course Map" />` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#f8f9fa;color:#6b7280;font-size:12px;">Course Map</div>`}
-    </div>
-    ${splitsHTML ? `<div class="splits-col">
-      <table>
-        <thead>
-          <tr><th>Mi</th><th>Elev</th><th>Pace</th><th>Time</th><th></th></tr>
-        </thead>
-        <tbody>${splitsHTML}</tbody>
-      </table>
-    </div>` : ""}
-  </div>
+  ${opts.map && mapImg ? `<div class="map-section" style="margin-bottom:10px;border-radius:8px;overflow:hidden;border:1px solid #e2e5e9;">
+    <img src="${mapImg}" alt="Course Map" style="width:100%;height:auto;display:block;" />
+  </div>` : ""}
 
-  <div class="elevation-section">
+  ${opts.elevation && elevImg ? `<div class="elevation-section">
     <div class="section-title">Elevation Profile</div>
     <img class="elevation-img" src="${elevImg}" alt="Elevation Profile" />
-  </div>
+  </div>` : ""}
+
+  ${opts.splits && splitsHTML ? `<div class="splits-section" style="margin-bottom:10px;">
+    <div class="section-title">Pacing Strategy</div>
+    <table>
+      <thead>
+        <tr><th>Mile</th><th>Elev</th><th>Pace</th><th>Cumul.</th>${opts.fuel ? '<th>Fuel</th>' : ''}</tr>
+      </thead>
+      <tbody>${splitsHTML}</tbody>
+    </table>
+  </div>` : ""}
+
+  ${opts.walkrun && pacePlan.walkRun ? `<div style="margin-bottom:10px;">
+    <div class="section-title">Walk/Run Strategy</div>
+    <div style="display:flex;gap:10px;font-size:12px;padding:10px;background:#f8f9fa;border-radius:6px;border:1px solid #e2e5e9;">
+      <div style="flex:1;text-align:center;"><div style="font-size:9px;color:#6b7280;text-transform:uppercase;">Run Pace</div><div style="font-size:16px;font-weight:800;color:#334264;">${pacePlan.walkRun.runPaceStr}/mi</div></div>
+      <div style="flex:1;text-align:center;"><div style="font-size:9px;color:#6b7280;text-transform:uppercase;">Walk Pace</div><div style="font-size:16px;font-weight:800;color:#6b7280;">${pacePlan.walkRun.walkPaceStr}/mi</div></div>
+      <div style="flex:1;text-align:center;"><div style="font-size:9px;color:#6b7280;text-transform:uppercase;">Run/Walk</div><div style="font-size:16px;font-weight:800;color:#41AE9F;">${pacePlan.walkRun.runMinPerCycle}/${pacePlan.walkRun.walkMinPerCycle} min</div></div>
+    </div>
+  </div>` : ""}
+
+  ${opts.weather && lastWeatherData ? `<div style="margin-bottom:10px;">
+    <div class="section-title">Weather Impact</div>
+    <div style="display:flex;gap:8px;font-size:11px;">
+      <div style="flex:1;padding:8px;background:#f8f9fa;border-radius:6px;border:1px solid #e2e5e9;text-align:center;">
+        <div style="font-size:9px;color:#6b7280;text-transform:uppercase;">Temp</div>
+        <div style="font-weight:700;">${lastWeatherData.temp || "N/A"}</div>
+      </div>
+      <div style="flex:1;padding:8px;background:#f8f9fa;border-radius:6px;border:1px solid #e2e5e9;text-align:center;">
+        <div style="font-size:9px;color:#6b7280;text-transform:uppercase;">Adjustment</div>
+        <div style="font-weight:700;color:#d97706;">+${Math.round(lastWeatherData.adj || 0)}s/mi</div>
+      </div>
+    </div>
+  </div>` : ""}
 
   <div class="footer">
-    <span>RunWell Clinic &middot; Interactive Race Strategies</span>
+    <span>RunWell Clinic &middot; Race Plans</span>
     <span>runwellclinic.com</span>
   </div>
 
-  ${(notesHTML || freeNotes) ? `
+  ${opts.notes && (notesHTML || freeNotes) ? `
   <div style="page-break-before:always;"></div>
   <div class="header" style="margin-top:0;">
     <div class="header-left">
@@ -1688,7 +1700,7 @@
       <div class="subtitle">Race Notes</div>
     </div>
     <div class="header-right">
-      <div class="brand">Interactive Race Strategies</div>
+      <div class="brand">Race Plans</div>
     </div>
   </div>
   ${notesHTML ? `<div class="notes-section">
@@ -1700,7 +1712,7 @@
     <div style="font-size:12px;line-height:1.7;color:#1a1a2e;white-space:pre-wrap;border:1px solid #e2e5e9;border-radius:8px;padding:14px;background:#f8f9fa;">${freeNotes.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
   </div>` : ""}
   <div class="footer">
-    <span>RunWell Clinic &middot; Interactive Race Strategies</span>
+    <span>RunWell Clinic &middot; Race Plans</span>
     <span>runwellclinic.com</span>
   </div>
   ` : ""}
@@ -1802,6 +1814,7 @@
     window._runwellSaveFuelMiles = saveFuelMiles;
     window._runwellRenderFuelMapMarkers = renderFuelMapMarkers;
     window._runwellRenderSplitsTable = renderSplitsTable;
+    window._runwellSetWeatherData = function(data) { lastWeatherData = data; };
     window._runwellAddMarker = function (data) {
       addCustomMarker(data);
     };
@@ -1818,6 +1831,11 @@
       if (elevationChart) elevationChart.update("none");
       updateRunnerInfo(runnerMile);
     };
+
+    // Export modal handlers
+    document.getElementById("export-generate").addEventListener("click", doExportWithOptions);
+    document.getElementById("export-cancel").addEventListener("click", () => { document.getElementById("export-modal").style.display = "none"; });
+    document.getElementById("export-modal").addEventListener("click", (e) => { if (e.target.id === "export-modal") e.target.style.display = "none"; });
 
     // ─── Save Plan on Navigate Away ─────────────────────────
     initSavePlan();
@@ -1837,15 +1855,24 @@
     const saveModal = document.getElementById("save-plan-modal");
     const savedPlansModal = document.getElementById("saved-plans-modal");
     let pendingNavUrl = null;
+    let planSavedOrSkipped = false;
 
     // Intercept "Change Race" link
     document.getElementById("btn-change-race").addEventListener("click", (e) => {
       e.preventDefault();
-      if (pacePlan.splits.length > 0) {
+      if (pacePlan.splits.length > 0 && !planSavedOrSkipped) {
         pendingNavUrl = "index.html";
         showSavePrompt();
       } else {
         window.location.href = "index.html";
+      }
+    });
+
+    // Browser beforeunload (catches back button, tab close, URL change)
+    window.addEventListener("beforeunload", (e) => {
+      if (pacePlan.splits.length > 0 && !planSavedOrSkipped) {
+        e.preventDefault();
+        e.returnValue = "";
       }
     });
 
@@ -1898,6 +1925,10 @@
         }
       });
       setSavedPlans(plans);
+      planSavedOrSkipped = true;
+
+      // Clear the local race plan so the page resets on return
+      clearLocalPlanData();
 
       saveModal.style.display = "none";
       if (pendingNavUrl) {
@@ -1908,12 +1939,28 @@
 
     // Don't Save button
     document.getElementById("save-plan-skip").addEventListener("click", () => {
+      planSavedOrSkipped = true;
+
+      // Clear the local race plan so the page resets on return
+      clearLocalPlanData();
+
       saveModal.style.display = "none";
       if (pendingNavUrl) {
         window.location.href = pendingNavUrl;
         pendingNavUrl = null;
       }
     });
+
+    function clearLocalPlanData() {
+      const raceId = getRaceId();
+      const prefix = getAthletePrefix();
+      // Remove pace plan, fuel miles, segments, notes for this race
+      localStorage.removeItem(`runwell-${prefix}pace-${raceId}`);
+      localStorage.removeItem(`runwell-${prefix}pace-B-${raceId}`);
+      localStorage.removeItem(`runwell-${prefix}fuel-${raceId}`);
+      localStorage.removeItem(`runwell-${prefix}segments-${raceId}`);
+      localStorage.removeItem(`runwell-${prefix}notes-${raceId}`);
+    }
 
     saveModal.addEventListener("click", (e) => { if (e.target === saveModal) saveModal.style.display = "none"; });
 
